@@ -164,7 +164,7 @@ export const StudentsPage: React.FC = () => {
               <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-600">
                 {st.first_name[0]}
               </div>
-              {activeRole !== 'OFFICE_STAFF' && (
+              {(activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN') && (
               <button type="button" onClick={() => handleDeleteStudent(st.id)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${st.full_name}`}>
                 <Trash2 className="w-4 h-4" />
               </button>

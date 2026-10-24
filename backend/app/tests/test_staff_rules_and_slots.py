@@ -48,6 +48,8 @@ def test_office_staff_can_add_but_not_change_students_faculty_or_academic_struct
 
     students = client.get("/api/v1/students", headers=office).json()
     assert client.delete(f"/api/v1/students/{students[0]['id']}", headers=office).status_code == 403
+    faculty = auth(*FACULTY)
+    assert client.delete(f"/api/v1/students/{students[0]['id']}", headers=faculty).status_code == 403
     assert client.post("/api/v1/academics/classes", json={"name": "Class 13", "divisions": ["A"]}, headers=office).status_code == 403
 
     principal = auth(*PRINCIPAL)
