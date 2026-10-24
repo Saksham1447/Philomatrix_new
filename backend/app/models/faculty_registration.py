@@ -11,6 +11,7 @@ class FacultyRegistrationRequest(BaseModel):
     email = Column(String(255), nullable=False)
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(100), nullable=False)
+    middle_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=False)
     phone_number = Column(String(30), nullable=True)
     employee_id = Column(String(50), nullable=False)

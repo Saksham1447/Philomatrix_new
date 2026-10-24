@@ -1,36 +1,15 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: philomatrix_postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-philomatrix_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-philomatrix_secret_2026}
-      POSTGRES_DB: ${POSTGRES_DB:-philomatrix_db}
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-philomatrix_user} -d ${POSTGRES_DB:-philomatrix_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   backend:
     build:
       context: ../backend
       dockerfile: Dockerfile
     container_name: philomatrix_backend
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
+    env_file:
+      - ../backend/.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-philomatrix_user}:${POSTGRES_PASSWORD:-philomatrix_secret_2026}@db:5432/${POSTGRES_DB:-philomatrix_db}
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_philomatrix_2026_change_in_production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     ports:
       - "8000:8000"
@@ -45,6 +24,3 @@ services:
       - backend
     ports:
       - "3000:80"
-
-volumes:
-  pgdata:

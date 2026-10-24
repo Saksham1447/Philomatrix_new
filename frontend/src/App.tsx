@@ -9,6 +9,7 @@ import { AttendancePage } from './pages/AttendancePage';
 import { ExaminationsPage } from './pages/ExaminationsPage';
 import { ReportCardPage } from './pages/ReportCardPage';
 import { TimetablePage } from './pages/TimetablePage';
+import { TimetableSlotsPage } from './pages/TimetableSlotsPage';
 import { StudentsPage } from './pages/StudentsPage';
 import { AssignmentsPage } from './pages/AssignmentsPage';
 import { NoticesPage } from './pages/NoticesPage';
@@ -45,6 +46,7 @@ export const App: React.FC = () => {
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="attendance" element={<AttendancePage />} />
               <Route path="timetable" element={<TimetablePage />} />
+              <Route path="timetable-slots" element={<TimetableSlotsPage />} />
               <Route path="examinations" element={<ExaminationsPage />} />
               <Route path="report-cards" element={<ReportCardPage />} />
               <Route path="students" element={<StudentsPage />} />

@@ -8,6 +8,7 @@ class GuardianCreate(BaseModel):
     email: EmailStr
     password: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: str
     relationship_type: str = "FATHER"  # FATHER, MOTHER, LEGAL_GUARDIAN
@@ -33,6 +34,7 @@ class StudentCreate(BaseModel):
     email: EmailStr
     password: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: Optional[str] = None
 
@@ -62,6 +64,7 @@ class StudentResponse(BaseModel):
     admission_number: str
     roll_number: Optional[str] = None
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     full_name: str
     email: str

@@ -20,6 +20,7 @@ class User(BaseModel):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     first_name = Column(String(100), nullable=False)
+    middle_name = Column(String(100), nullable=True)
     last_name = Column(String(100), nullable=False)
     phone_number = Column(String(30), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
@@ -37,7 +38,7 @@ class User(BaseModel):
 
     @property
     def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+        return " ".join(part for part in (self.first_name, self.middle_name, self.last_name) if part)
 
 
 class UserRoleAssignment(BaseModel):

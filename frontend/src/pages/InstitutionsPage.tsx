@@ -6,12 +6,12 @@ import { Institution } from '../types';
 type InstituteForm = {
   name: string; code: string; slug: string; city: string; state: string; address: string;
   phone: string; email: string; logo_url: string; institution_type: string; principal_email: string;
-  principal_password: string; principal_first_name: string; principal_last_name: string;
+  principal_password: string; principal_first_name: string; principal_middle_name: string; principal_last_name: string;
 };
 
 const emptyForm: InstituteForm = {
   name: '', code: '', slug: '', city: '', state: 'Maharashtra', address: '', phone: '', email: '',
-  logo_url: '', principal_email: '', principal_password: '', principal_first_name: '', principal_last_name: '',
+  logo_url: '', principal_email: '', principal_password: '', principal_first_name: '', principal_middle_name: '', principal_last_name: '',
   institution_type: 'OTHER',
 };
 
@@ -125,7 +125,7 @@ export const InstitutionsPage: React.FC = () => {
   };
 
   const fields: [keyof InstituteForm, string, boolean][] = [
-    ['name', 'Institute name', true], ['code', 'Institute code', true], ['slug', 'Database slug (optional)', false],
+    ['name', 'Institute name', true], ['code', 'Institute code', true], ['slug', 'Institute short ID / slug (optional)', false],
     ['city', 'City', false], ['state', 'State', false], ['phone', 'Phone', false], ['email', 'Official email', false],
     ['address', 'Address', false],
   ];
@@ -145,7 +145,7 @@ export const InstitutionsPage: React.FC = () => {
           {fields.map(([field, label, required]) => <label key={field} className={field === 'address' ? 'sm:col-span-2' : ''}><span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span><input required={required} disabled={editingId !== null && (field === 'code' || field === 'slug')} type={field === 'email' ? 'email' : 'text'} value={form[field]} onChange={(event) => update(field, event.target.value)} className="premium-input w-full disabled:cursor-not-allowed disabled:bg-slate-100" /></label>)}
           <label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Institution type</span><select value={form.institution_type} onChange={(event) => update('institution_type', event.target.value)} className="premium-input w-full"><option value="SCHOOL">School</option><option value="JUNIOR_COLLEGE">Junior College</option><option value="DEGREE_COLLEGE">Degree College</option><option value="ENGINEERING_COLLEGE">Engineering College</option><option value="OTHER">Other / Multi-purpose</option></select></label>
           <label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Institute image</span><div className="flex flex-wrap items-center gap-4"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-sm font-semibold text-indigo-700"><ImagePlus className="h-4 w-4" /> Upload image<input type="file" accept="image/*" className="hidden" onChange={(event) => handleImage(event.target.files?.[0])} /></label>{form.logo_url && <img src={form.logo_url} alt="Institute preview" className="h-16 w-28 rounded-xl object-cover ring-1 ring-slate-200" />}<span className="text-xs text-slate-400">PNG/JPG, maximum 2 MB</span></div></label>
-          {!editingId && <><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal first name</span><input value={form.principal_first_name} onChange={(event) => update('principal_first_name', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal last name</span><input value={form.principal_last_name} onChange={(event) => update('principal_last_name', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal email</span><input required type="email" value={form.principal_email} onChange={(event) => update('principal_email', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal temporary password</span><input required type="password" value={form.principal_password} onChange={(event) => update('principal_password', event.target.value)} className="premium-input w-full" /></label></>}
+          {!editingId && <><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal first name</span><input required value={form.principal_first_name} onChange={(event) => update('principal_first_name', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal middle name</span><input required value={form.principal_middle_name} onChange={(event) => update('principal_middle_name', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal last name</span><input required value={form.principal_last_name} onChange={(event) => update('principal_last_name', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal email</span><input required type="email" value={form.principal_email} onChange={(event) => update('principal_email', event.target.value)} className="premium-input w-full" /></label><label><span className="mb-1.5 block text-xs font-semibold text-slate-600">Principal temporary password</span><input required type="password" value={form.principal_password} onChange={(event) => update('principal_password', event.target.value)} className="premium-input w-full" /></label></>}
           <div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-500 hover:bg-slate-100">Cancel</button><button disabled={isSaving} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{isSaving ? 'Saving...' : editingId ? 'Save institute details' : 'Create isolated workspace'}</button></div>
         </form>
       )}

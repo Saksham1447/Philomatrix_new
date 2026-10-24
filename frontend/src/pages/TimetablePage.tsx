@@ -3,10 +3,12 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { TimetableEntry } from '../types';
 import { formatIndianTime } from '../utils/time';
+import { FacultySlotPicker } from '../components/common/FacultySlotPicker';
 import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, Filter } from 'lucide-react';
 
 export const TimetablePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
+  const isAdminView = activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF' || activeRole === 'SUPER_ADMIN';
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [assignments, setAssignments] = useState<Array<{ subject_id: string; subject_name: string; subject_code: string; division_id: string; division_name: string; class_name: string }>>([]);
@@ -15,6 +17,11 @@ export const TimetablePage: React.FC = () => {
   const [roomNumber, setRoomNumber] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Every division of a class has its own timetable; administrators pick which one to view.
+  const [classes, setClasses] = useState<Array<{ id: string; name: string; divisions: Array<{ id: string; name: string }> }>>([]);
+  const [selectedClassId, setSelectedClassId] = useState('');
+  const [selectedDivisionId, setSelectedDivisionId] = useState('');
+  const [slotTimes, setSlotTimes] = useState<Record<number, [string, string]>>({});
 
   const days = [
     { num: 1, name: 'Monday' },
@@ -25,8 +32,8 @@ export const TimetablePage: React.FC = () => {
     { num: 6, name: 'Saturday' },
   ];
 
-  const periods = [1, 2, 3, 4, 5, 6, 7];
-  const periodTimes: Record<number, [string, string]> = {
+  const periods = Array.from({ length: Math.max(7, ...Object.keys(slotTimes).map(Number)) }, (_, index) => index + 1);
+  const defaultPeriodTimes: Record<number, [string, string]> = {
     1: ['09:00', '10:00'],
     2: ['10:00', '11:00'],
     3: ['11:10', '12:10'],
@@ -35,6 +42,19 @@ export const TimetablePage: React.FC = () => {
     6: ['14:50', '15:50'],
     7: ['16:00', '17:00'],
   };
+  const periodTimes: Record<number, [string, string]> = { ...defaultPeriodTimes, ...slotTimes };
+
+  useEffect(() => {
+    if (!isAdminView) return;
+    api.get<typeof classes>('/academics/classes').then((items) => {
+      setClasses(items);
+      const first = items.find((item) => item.divisions.length) || items[0];
+      if (first) {
+        setSelectedClassId(first.id);
+        setSelectedDivisionId(first.divisions[0]?.id || '');
+      }
+    }).catch((err) => console.error('Failed to load classes', err));
+  }, [isAdminView]);
 
   useEffect(() => {
     const fetchTimetable = async () => {
@@ -47,6 +67,15 @@ export const TimetablePage: React.FC = () => {
           url = `/timetable?student_id=${activeChild.id}`;
         } else if (activeRole === 'FACULTY' && user?.faculty_id) {
           url = `/timetable?faculty_id=${user.faculty_id}`;
+        } else if (isAdminView) {
+          if (!selectedDivisionId) {
+            setEntries([]);
+            setSlotTimes({});
+            return;
+          }
+          url = `/timetable?division_id=${selectedDivisionId}`;
+          const slots = await api.get<Array<{ period_number: number; start_time: string; end_time: string }>>(`/timetable/slots?division_id=${selectedDivisionId}`);
+          setSlotTimes(Object.fromEntries(slots.map((slot) => [slot.period_number, [slot.start_time, slot.end_time]])));
         }
 
         const data = await api.get<TimetableEntry[]>(url);
@@ -62,7 +91,7 @@ export const TimetablePage: React.FC = () => {
     };
 
     fetchTimetable();
-  }, [activeRole, activeChild, user]);
+  }, [activeRole, activeChild, user, isAdminView, selectedDivisionId]);
 
   const getSlot = (dayNum: number, periodNum: number) => {
     return entries.find(e => e.day_of_week === dayNum && e.period_number === periodNum);
@@ -121,6 +150,40 @@ export const TimetablePage: React.FC = () => {
         )}
       </div>
 
+      {activeRole === 'FACULTY' && user?.faculty_id && (
+        <FacultySlotPicker
+          facultyId={user.faculty_id}
+          assignments={assignments}
+          onScheduled={async () => setEntries(await api.get<TimetableEntry[]>(`/timetable?faculty_id=${user.faculty_id}`))}
+        />
+      )}
+
+      {isAdminView && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+          <label className="text-xs font-semibold text-slate-600">
+            Department / class
+            <select
+              value={selectedClassId}
+              onChange={event => {
+                const next = classes.find(item => item.id === event.target.value);
+                setSelectedClassId(event.target.value);
+                setSelectedDivisionId(next?.divisions[0]?.id || '');
+              }}
+              className="mt-1 block px-3 py-2 border rounded-lg bg-slate-50 text-sm font-normal"
+            >
+              {classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-semibold text-slate-600">
+            Division
+            <select value={selectedDivisionId} onChange={event => setSelectedDivisionId(event.target.value)} className="mt-1 block px-3 py-2 border rounded-lg bg-slate-50 text-sm font-normal">
+              {(classes.find(item => item.id === selectedClassId)?.divisions || []).map(division => <option key={division.id} value={division.id}>Division {division.name}</option>)}
+            </select>
+          </label>
+          <p className="text-xs text-slate-500 sm:ml-auto">Each division has its own timetable. Teachers fill it from their own login.</p>
+        </div>
+      )}
+
       {/* Timetable Grid */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -159,6 +222,9 @@ export const TimetablePage: React.FC = () => {
                             <p className="font-bold text-xs truncate" title={slot.subject_name}>
                               {slot.subject_name}
                             </p>
+                            {!isAdminView && (
+                              <p className="text-[10px] font-semibold text-brand-700 truncate">{slot.class_name} · Div {slot.division_name}</p>
+                            )}
                             <p className="text-[11px] text-slate-600 truncate flex items-center gap-1">
                               <User className="w-3 h-3 text-slate-400 shrink-0" />
                               {slot.faculty_name}

@@ -3,20 +3,14 @@ from decimal import Decimal
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-from app.core.database import get_db
-from app.core.deps import get_current_user, require_roles, verify_student_access
-from app.models.institution import Institution
-from app.models.user import User
-from app.models.student import Student, Enrollment
-from app.models.academic import Subject, Division, ClassModel
-from app.models.examination import Examination, ExamSubject, MarksEntry, ResultPublication, ReportCardVersion
-from app.models.attendance import AttendanceRecord, AttendanceSession
+from app.core.deps import get_current_user, get_db, require_roles, verify_student_access
+from app.core.docstore import DocStore, UserDoc
+from app.core.q import ids, index_by, group_by
 from app.schemas.examination import ReportCardData, ReportCardSubjectScore
 
 router = APIRouter(prefix="/reports", tags=["Report Cards & Performance Analytics"])
@@ -39,47 +33,45 @@ def calculate_grade(pct: Decimal) -> str:
 def compile_report_card_data(
     examination_id: str,
     student_id: str,
-    current_user: User,
-    db: Session
+    current_user: UserDoc,
+    db: DocStore
 ) -> ReportCardData:
     """Compile official report card data aggregating marks and attendance."""
     # Re-validate student access, tenant isolation, and guardian-child relationship server-side
     student = verify_student_access(student_id, current_user, db)
 
-    exam = (
-        db.query(Examination)
-        .filter(Examination.id == examination_id, Examination.institution_id == student.institution_id)
-        .first()
-    )
+    exam = db.find_one("examinations", {"id": examination_id, "institution_id": student.institution_id})
     if not exam:
         raise HTTPException(status_code=404, detail="Examination not found in this institution")
 
     # If student or parent, verify publication
     if current_user.student_profile or current_user.guardian_profile:
-        is_published = (
-            db.query(ResultPublication)
-            .filter(ResultPublication.examination_id == examination_id, ResultPublication.is_active == True)
-            .first()
-        )
+        is_published = db.find_one("result_publications", {"examination_id": examination_id, "is_active": True})
         if not is_published:
             raise HTTPException(status_code=403, detail="Results for this examination have not yet been published")
 
-    enrollment = db.query(Enrollment).filter(Enrollment.student_id == student.id).first()
-    institution = db.query(Institution).filter(Institution.id == student.institution_id).first()
+    enrollment = db.find_one("enrollments", {"student_id": student.id})
+    institution = db.get("institutions", student.institution_id)
+    enrollment_year = db.get("academic_years", enrollment.academic_year_id) if enrollment else None
+    enrollment_division = db.get("divisions", enrollment.division_id) if enrollment else None
+    enrollment_class = db.get("classes", enrollment_division.class_id) if enrollment_division else None
+    student_user = db.get("users", student.user_id)
 
     # Gather subject marks
-    exam_subjects = db.query(ExamSubject).filter(ExamSubject.examination_id == examination_id).all()
+    exam_subjects = db.find("exam_subjects", {"examination_id": examination_id})
+    subjects_by_id = db.get_many("subjects", ids(exam_subjects, "subject_id"))
+    marks_by_exam_subject = index_by(
+        db.find("marks_entries", {"student_id": student.id, "exam_subject_id": {"$in": ids(exam_subjects)}}),
+        "exam_subject_id",
+    )
     subject_scores = []
     grand_total_max = Decimal("0.00")
     grand_total_obtained = Decimal("0.00")
     any_failed = False
 
     for es in exam_subjects:
-        m = (
-            db.query(MarksEntry)
-            .filter(MarksEntry.exam_subject_id == es.id, MarksEntry.student_id == student.id)
-            .first()
-        )
+        m = marks_by_exam_subject.get(es.id)
+        subject = subjects_by_id[es.subject_id]
         t_max = es.max_theory_marks
         p_max = es.max_practical_marks
         tot_max = t_max + p_max
@@ -94,7 +86,7 @@ def compile_report_card_data(
 
         pct = Decimal(round((tot_obt / tot_max) * 100, 2)) if tot_obt is not None and tot_max > 0 else Decimal("0.00")
         grd = calculate_grade(pct) if tot_obt is not None else "N/A"
-        
+
         status_str = "PASS"
         if m and m.is_absent:
             status_str = "ABSENT"
@@ -105,8 +97,8 @@ def compile_report_card_data(
 
         subject_scores.append(
             ReportCardSubjectScore(
-                subject_code=es.subject.code,
-                subject_name=es.subject.name,
+                subject_code=subject.code,
+                subject_name=subject.name,
                 theory_max=t_max,
                 theory_obtained=t_obt,
                 practical_max=p_max,
@@ -119,13 +111,10 @@ def compile_report_card_data(
             )
         )
 
-    # Attendance Rollup
-    att_records = (
-        db.query(AttendanceRecord)
-        .join(AttendanceSession, AttendanceSession.id == AttendanceRecord.attendance_session_id)
-        .filter(AttendanceRecord.student_id == student.id)
-        .all()
-    )
+    # Attendance Rollup (records whose session still exists, mirroring the former inner join)
+    all_records = db.find("attendance_records", {"student_id": student.id})
+    sessions_by_id = db.get_many("attendance_sessions", ids(all_records, "attendance_session_id"))
+    att_records = [r for r in all_records if r.attendance_session_id in sessions_by_id]
     tot_conducted = len(att_records)
     tot_attended = sum(1 for r in att_records if r.status in ["PRESENT", "LATE", "EXCUSED"])
     att_pct = Decimal(round((tot_attended / tot_conducted) * 100, 2)) if tot_conducted > 0 else Decimal("100.00")
@@ -137,21 +126,21 @@ def compile_report_card_data(
     overall_grd = calculate_grade(overall_pct) if not any_failed else "Needs Improvement"
     final_res = "CONGRATULATIONS - PROMOTED" if not any_failed else "REQUIRES REMEDIAL SUPPORT"
 
-    pub = db.query(ResultPublication).filter(ResultPublication.examination_id == examination_id).first()
+    pub = db.find_one("result_publications", {"examination_id": examination_id})
 
     return ReportCardData(
         institution_name=institution.name,
         institution_address=institution.address or f"{institution.city}, {institution.state}",
         institution_code=institution.code,
         institution_logo_url=institution.logo_url,
-        academic_year=enrollment.academic_year.name if enrollment else "2026-2027",
+        academic_year=enrollment_year.name if enrollment else "2026-2027",
         examination_name=exam.name,
         examination_type=exam.exam_type,
-        student_name=student.user.full_name,
+        student_name=student_user.full_name,
         admission_number=student.admission_number,
         roll_number=student.roll_number,
-        class_name=enrollment.division.class_model.name if enrollment else "Class 11 Science",
-        division_name=enrollment.division.name if enrollment else "A",
+        class_name=enrollment_class.name if enrollment else "Class 11 Science",
+        division_name=enrollment_division.name if enrollment else "A",
         stream="SCIENCE",
         attendance_percentage=att_pct,
         total_conducted_lectures=tot_conducted,
@@ -172,8 +161,8 @@ def compile_report_card_data(
 def get_report_card(
     examination_id: str,
     student_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db)
 ):
     """Fetch compiled official report card data."""
     return compile_report_card_data(examination_id, student_id, current_user, db)
@@ -183,8 +172,8 @@ def get_report_card(
 def download_report_card_pdf(
     examination_id: str,
     student_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db)
 ):
     """Generate and stream a professional printable PDF Report Card."""
     data = compile_report_card_data(examination_id, student_id, current_user, db)
@@ -342,32 +331,31 @@ def download_report_card_pdf(
 def get_class_performance_analytics(
     division_id: Optional[str] = None,
     examination_id: Optional[str] = None,
-    current_user: User = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
-    db: Session = Depends(get_db)
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    db: DocStore = Depends(get_db)
 ):
     """[PRINCIPAL] Aggregated class performance: average percentages, pass rates, toppers, and at-risk students."""
-    students = (
-        db.query(Student)
-        .filter(Student.institution_id == current_user.institution_id, Student.status == "ACTIVE")
-        .all()
-    )
+    students = db.find("students", {"institution_id": current_user.institution_id, "status": "ACTIVE"})
 
     total_students = len(students)
     at_risk_attendance = 0
 
+    records_by_student = group_by(
+        db.find("attendance_records", {"student_id": {"$in": ids(students)}}) if students else [],
+        "student_id",
+    )
     for s in students:
-        recs = db.query(AttendanceRecord).filter(AttendanceRecord.student_id == s.id).all()
+        recs = records_by_student.get(s.id, [])
         if recs:
             att = sum(1 for r in recs if r.status in ["PRESENT", "LATE", "EXCUSED"])
             pct = (att / len(recs)) * 100
             if pct < 75.0:
                 at_risk_attendance += 1
-
     return {
         "total_active_students": total_students,
         "students_below_75_attendance": at_risk_attendance,
         "attendance_compliance_rate": round(((total_students - at_risk_attendance) / total_students * 100), 2) if total_students > 0 else 100.0,
         "active_stream": "Class 11 & 12 Science",
-        "divisions_count": db.query(Division).filter(Division.institution_id == current_user.institution_id).count(),
-        "examinations_held": db.query(Examination).filter(Examination.institution_id == current_user.institution_id).count()
+        "divisions_count": db.count("divisions", {"institution_id": current_user.institution_id}),
+        "examinations_held": db.count("examinations", {"institution_id": current_user.institution_id})
     }

@@ -6,7 +6,7 @@
 ## 1. TESTING STRATEGY OVERVIEW
 
 Quality and reliability in educational records software require strict multi-tiered testing:
-1. **Backend Unit & Integration Tests (Pytest + FastAPI TestClient + SQLite/PostgreSQL in-memory):**
+1. **Backend Unit & Integration Tests (Pytest + FastAPI TestClient + in-memory MongoDB test client):**
    - Authentication, Password Hashing, Refresh Token Rotation.
    - Strict Tenant Isolation: Assert queries cannot access other institution data.
    - Role & Resource Authorization: Verify 403 Forbidden on unassigned faculty attendance or marks entry.

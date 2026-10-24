@@ -1,11 +1,11 @@
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.core.database import get_db
 from app.core.security import get_password_hash
-from app.core.deps import get_current_user, require_roles
-from app.models.user import User, Role, UserRoleAssignment
-from app.models.academic import FacultyProfile, FacultySubjectAssignment, Subject, Division, ClassModel, AcademicYear
+from app.core.deps import get_db, get_current_user, require_roles
+from app.core.docstore import Conflict, DocStore, UserDoc
+from app.core.institution_rules import resolve_faculty_department
+from app.core.people import ensure_unique_person_id, normalize_gender
+from app.core.q import ids
 from app.schemas.academic import (
     FacultyCreate,
     FacultyResponse,
@@ -16,234 +16,229 @@ from app.schemas.academic import (
 router = APIRouter(prefix="/faculty", tags=["Faculty Management"])
 
 
-@router.get("", response_model=List[FacultyResponse])
-def list_faculty(
-    department: str = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """List all faculty members in the caller's institution."""
-    query = (
-        db.query(FacultyProfile)
-        .filter(FacultyProfile.institution_id == current_user.institution_id)
-    )
-    if department:
-        query = query.filter(FacultyProfile.department == department)
-    faculties = query.all()
-    result = []
-    for f in faculties:
-        result.append(
-            FacultyResponse(
-                id=f.id,
-                user_id=f.user_id,
-                employee_id=f.employee_id,
-                first_name=f.user.first_name,
-                last_name=f.user.last_name,
-                full_name=f.user.full_name,
-                email=f.user.email,
-                phone_number=f.user.phone_number,
-                designation=f.designation,
-                department=f.department,
-                qualification=f.qualification
-            )
-        )
-    return result
-
-
-@router.post("", response_model=FacultyResponse, status_code=status.HTTP_201_CREATED)
-def create_faculty(
-    request: FacultyCreate,
-    current_user: User = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
-    db: Session = Depends(get_db)
-):
-    """Register a new faculty lecturer and user account."""
-    existing_user = (
-        db.query(User)
-        .filter((User.username == request.email) | (User.email == request.email))
-        .first()
-    )
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username or email already in use")
-
-    existing_emp = (
-        db.query(FacultyProfile)
-        .filter(
-            FacultyProfile.institution_id == current_user.institution_id,
-            FacultyProfile.employee_id == request.employee_id
-        )
-        .first()
-    )
-    if existing_emp:
-        raise HTTPException(status_code=400, detail="Employee ID already exists in institution")
-
-    # Create User
-    user = User(
-        institution_id=current_user.institution_id,
-        username=request.email,
-        email=request.email,
-        password_hash=get_password_hash(request.password),
-        first_name=request.first_name,
-        last_name=request.last_name,
-        phone_number=request.phone_number,
-        is_active=True,
-        is_verified=True
-    )
-    db.add(user)
-    db.flush()
-
-    # Assign FACULTY role
-    faculty_role = db.query(Role).filter(Role.name == "FACULTY").first()
-    if not faculty_role:
-        faculty_role = Role(name="FACULTY", description="Lecturer / Subject Teacher")
-        db.add(faculty_role)
-        db.flush()
-
-    role_assign = UserRoleAssignment(
-        user_id=user.id,
-        role_id=faculty_role.id,
-        institution_id=current_user.institution_id
-    )
-    db.add(role_assign)
-
-    # Create Faculty Profile
-    profile = FacultyProfile(
-        user_id=user.id,
-        institution_id=current_user.institution_id,
-        employee_id=request.employee_id,
-        designation=request.designation,
-        department=request.department,
-        qualification=request.qualification
-    )
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-
+def _faculty_response(profile, user) -> FacultyResponse:
     return FacultyResponse(
         id=profile.id,
         user_id=user.id,
         employee_id=profile.employee_id,
+        gender=profile.gender,
         first_name=user.first_name,
+        middle_name=user.middle_name,
         last_name=user.last_name,
         full_name=user.full_name,
         email=user.email,
         phone_number=user.phone_number,
         designation=profile.designation,
         department=profile.department,
-        qualification=profile.qualification
+        qualification=profile.qualification,
     )
+
+
+def _assignment_responses(db: DocStore, assignments) -> List[FacultyAssignmentResponse]:
+    """Resolve faculty/user/subject/division/class names with batched lookups."""
+    faculty = db.get_many("faculty_profiles", ids(assignments, "faculty_id"))
+    users = db.get_many("users", [f.user_id for f in faculty.values()])
+    subjects = db.get_many("subjects", ids(assignments, "subject_id"))
+    divisions = db.get_many("divisions", ids(assignments, "division_id"))
+    classes = db.get_many("classes", [d.class_id for d in divisions.values()])
+    results = []
+    for a in assignments:
+        fac = faculty[a.faculty_id]
+        subject = subjects[a.subject_id]
+        division = divisions[a.division_id]
+        results.append(
+            FacultyAssignmentResponse(
+                id=a.id,
+                academic_year_id=a.academic_year_id,
+                faculty_id=a.faculty_id,
+                faculty_name=users[fac.user_id].full_name,
+                subject_id=a.subject_id,
+                subject_name=subject.name,
+                subject_code=subject.code,
+                division_id=a.division_id,
+                division_name=division.name,
+                class_name=classes[division.class_id].name,
+                is_class_teacher=a.is_class_teacher,
+            )
+        )
+    return results
+
+
+@router.get("", response_model=List[FacultyResponse])
+def list_faculty(
+    department: str = None,
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db)
+):
+    """List all faculty members in the caller's institution."""
+    query = {"institution_id": current_user.institution_id}
+    if department:
+        query["department"] = department
+    faculties = db.find("faculty_profiles", query)
+    users = db.get_many("users", ids(faculties, "user_id"))
+    return [_faculty_response(f, users[f.user_id]) for f in faculties]
+
+
+@router.post("", response_model=FacultyResponse, status_code=status.HTTP_201_CREATED)
+def create_faculty(
+    request: FacultyCreate,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db)
+):
+    """Register a new faculty lecturer and user account."""
+    existing_user = db.find_one(
+        "users",
+        {"$or": [{"username": request.email}, {"email": request.email}]},
+    )
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username or email already in use")
+
+    employee_id = ensure_unique_person_id(
+        db, "faculty_profiles", "employee_id", request.employee_id, current_user.institution_id, "Faculty ID"
+    )
+    gender = normalize_gender(request.gender)
+    department = resolve_faculty_department(db, current_user.institution_id, request.department)
+    user = None
+    try:
+        # Create User
+        user = db.insert("users", {
+            "institution_id": current_user.institution_id,
+            "username": request.email,
+            "email": request.email,
+            "password_hash": get_password_hash(request.password),
+            "first_name": request.first_name,
+            "middle_name": request.middle_name,
+            "last_name": request.last_name,
+            "phone_number": request.phone_number,
+            "is_active": True,
+            "is_verified": True,
+        })
+
+        # Assign FACULTY role
+        faculty_role = db.find_one("roles", {"name": "FACULTY"})
+        if not faculty_role:
+            faculty_role = db.insert("roles", {"name": "FACULTY", "description": "Lecturer / Subject Teacher"})
+
+        db.insert("user_role_assignments", {
+            "user_id": user.id,
+            "role_id": faculty_role.id,
+            "institution_id": current_user.institution_id,
+        })
+
+        # Create Faculty Profile
+        profile = db.insert("faculty_profiles", {
+            "user_id": user.id,
+            "institution_id": current_user.institution_id,
+            "employee_id": employee_id,
+            "gender": gender,
+            "designation": request.designation,
+            "department": department,
+            "qualification": request.qualification,
+        })
+    except Conflict:
+        # Best-effort rollback (no multi-document transaction): cascade-delete the new user
+        if user is not None:
+            db.delete("users", user)
+        raise HTTPException(status_code=400, detail="Username, email, or employee ID already in use")
+    except Exception:
+        if user is not None:
+            db.delete("users", user)
+        raise
+
+    return _faculty_response(profile, user)
 
 
 @router.put("/{id}", response_model=FacultyResponse)
 def update_faculty(
     id: str,
     request: FacultyCreate,
-    current_user: User = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
-    db: Session = Depends(get_db),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    db: DocStore = Depends(get_db),
 ):
-    profile = db.query(FacultyProfile).filter(FacultyProfile.id == id, FacultyProfile.institution_id == current_user.institution_id).first()
+    profile = db.find_one("faculty_profiles", {"id": id, "institution_id": current_user.institution_id})
     if not profile:
         raise HTTPException(status_code=404, detail="Faculty member not found")
-    user = profile.user
-    user.first_name, user.last_name, user.email = request.first_name, request.last_name, request.email
-    user.phone_number = request.phone_number
-    profile.employee_id, profile.designation = request.employee_id, request.designation
-    profile.department, profile.qualification = request.department, request.qualification
-    db.commit()
-    db.refresh(profile)
-    return FacultyResponse(id=profile.id, user_id=user.id, employee_id=profile.employee_id, first_name=user.first_name, last_name=user.last_name, full_name=user.full_name, email=user.email, phone_number=user.phone_number, designation=profile.designation, department=profile.department, qualification=profile.qualification)
+    department = resolve_faculty_department(db, current_user.institution_id, request.department, profile.department)
+    employee_id = ensure_unique_person_id(
+        db, "faculty_profiles", "employee_id", request.employee_id, current_user.institution_id, "Faculty ID",
+        exclude_id=profile.id,
+    )
+    gender = normalize_gender(request.gender, required=False) or profile.gender
+    user = db.get("users", profile.user_id)
+    try:
+        user = db.update(user, {
+            "first_name": request.first_name,
+            "middle_name": request.middle_name,
+            "last_name": request.last_name,
+            "email": request.email,
+            "phone_number": request.phone_number,
+        })
+        profile = db.update(profile, {
+            "employee_id": employee_id,
+            "gender": gender,
+            "designation": request.designation,
+            "department": department,
+            "qualification": request.qualification,
+        })
+    except Conflict:
+        raise HTTPException(status_code=400, detail="Email or employee ID already in use")
+    return _faculty_response(profile, user)
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_faculty(
     id: str,
-    current_user: User = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
-    db: Session = Depends(get_db),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    db: DocStore = Depends(get_db),
 ):
-    profile = db.query(FacultyProfile).filter(FacultyProfile.id == id, FacultyProfile.institution_id == current_user.institution_id).first()
+    profile = db.find_one("faculty_profiles", {"id": id, "institution_id": current_user.institution_id})
     if not profile:
         raise HTTPException(status_code=404, detail="Faculty member not found")
-    db.delete(profile.user)
-    db.commit()
+    db.delete("users", profile.user_id)
     return None
 
 
 @router.get("/assignments", response_model=List[FacultyAssignmentResponse])
 def list_assignments(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db)
 ):
     """List teaching assignments."""
-    query = (
-        db.query(FacultySubjectAssignment)
-        .filter(FacultySubjectAssignment.institution_id == current_user.institution_id)
-    )
+    query = {"institution_id": current_user.institution_id}
     # If faculty, scope to own assignments
-    if current_user.faculty_profile:
-        query = query.filter(FacultySubjectAssignment.faculty_id == current_user.faculty_profile.id)
+    faculty_profile = current_user.faculty_profile
+    if faculty_profile:
+        query["faculty_id"] = faculty_profile.id
 
-    assignments = query.all()
-    results = []
-    for a in assignments:
-        results.append(
-            FacultyAssignmentResponse(
-                id=a.id,
-                academic_year_id=a.academic_year_id,
-                faculty_id=a.faculty_id,
-                faculty_name=a.faculty.user.full_name,
-                subject_id=a.subject_id,
-                subject_name=a.subject.name,
-                subject_code=a.subject.code,
-                division_id=a.division_id,
-                division_name=a.division.name,
-                class_name=a.division.class_model.name,
-                is_class_teacher=a.is_class_teacher
-            )
-        )
-    return results
+    return _assignment_responses(db, db.find("faculty_subject_assignments", query))
 
 
 @router.post("/assignments", response_model=FacultyAssignmentResponse, status_code=status.HTTP_201_CREATED)
 def assign_faculty_subject(
     request: FacultyAssignmentCreate,
-    current_user: User = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
-    db: Session = Depends(get_db)
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    db: DocStore = Depends(get_db)
 ):
     """[PRINCIPAL] Assign a teacher to a subject and division."""
-    existing = (
-        db.query(FacultySubjectAssignment)
-        .filter(
-            FacultySubjectAssignment.academic_year_id == request.academic_year_id,
-            FacultySubjectAssignment.faculty_id == request.faculty_id,
-            FacultySubjectAssignment.subject_id == request.subject_id,
-            FacultySubjectAssignment.division_id == request.division_id
-        )
-        .first()
+    existing = db.find_one(
+        "faculty_subject_assignments",
+        {
+            "academic_year_id": request.academic_year_id,
+            "faculty_id": request.faculty_id,
+            "subject_id": request.subject_id,
+            "division_id": request.division_id,
+        },
     )
     if existing:
         raise HTTPException(status_code=400, detail="Assignment already exists for this teacher, subject, and division")
 
-    assignment = FacultySubjectAssignment(
-        institution_id=current_user.institution_id,
-        academic_year_id=request.academic_year_id,
-        faculty_id=request.faculty_id,
-        subject_id=request.subject_id,
-        division_id=request.division_id,
-        is_class_teacher=request.is_class_teacher
-    )
-    db.add(assignment)
-    db.commit()
-    db.refresh(assignment)
+    assignment = db.insert("faculty_subject_assignments", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "faculty_id": request.faculty_id,
+        "subject_id": request.subject_id,
+        "division_id": request.division_id,
+        "is_class_teacher": request.is_class_teacher,
+    })
 
-    return FacultyAssignmentResponse(
-        id=assignment.id,
-        academic_year_id=assignment.academic_year_id,
-        faculty_id=assignment.faculty_id,
-        faculty_name=assignment.faculty.user.full_name,
-        subject_id=assignment.subject_id,
-        subject_name=assignment.subject.name,
-        subject_code=assignment.subject.code,
-        division_id=assignment.division_id,
-        division_name=assignment.division.name,
-        class_name=assignment.division.class_model.name,
-        is_class_teacher=assignment.is_class_teacher
-    )
+    return _assignment_responses(db, [assignment])[0]

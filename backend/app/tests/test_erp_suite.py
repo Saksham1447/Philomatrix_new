@@ -2,9 +2,6 @@ import pytest
 from decimal import Decimal
 from fastapi.testclient import TestClient
 from app.main import app
-from app.core.database import SessionLocal
-from app.models.student import Student
-from app.models.examination import Examination
 
 client = TestClient(app)
 

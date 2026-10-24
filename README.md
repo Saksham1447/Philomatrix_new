@@ -26,8 +26,8 @@
 ## 2. TECHNOLOGY STACK
 
 - **Frontend:** React 18, TypeScript (Strict Mode), Vite, Tailwind CSS, TanStack Query, React Router, Lucide Icons, Vitest.
-- **Backend:** Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2.0 ORM, Alembic Migrations, ReportLab (PDF), Pytest.
-- **Database:** PostgreSQL (with SQLite compatibility for zero-setup local dev/test execution).
+- **Backend:** Python 3.12, FastAPI, Pydantic v2, PyMongo, ReportLab (PDF), Pytest.
+- **Database:** MongoDB Atlas, with a control database and isolated database per institution.
 - **Security:** Argon2id / bcrypt password hashing, Short-lived JWT Access Tokens, HTTP-only Refresh Tokens, Server-Side RBAC.
 
 ---
@@ -36,7 +36,25 @@
 
 ### Tenant database model
 
-The control database stores platform records and the institute directory. When a Super Admin provisions a new institute from **Institute Workspaces**, PHILOMATRIX creates an isolated SQLite database under `backend/tenant_data/` and bootstraps that institute's principal account and roles there. Login requires selecting an active institute first; all subsequent API requests carry the selected institute context and are routed to that tenant database. Existing legacy institutes continue to use the control database until their data is explicitly migrated.
+The control database stores platform records and the institute directory. When a Super Admin provisions a new institute from **Institute Workspaces**, PHILOMATRIX creates an isolated MongoDB database for that institution and bootstraps its principal account and roles there. Login requires selecting an active institute first; subsequent API requests carry the selected institution context and are routed to that tenant database. The Mongo collections retain the names of the former relational tables, and references retain their existing string IDs.
+
+### MongoDB Atlas configuration and legacy data migration
+
+Create a MongoDB Atlas database user, allow your application's network access in Atlas, and place the Atlas URI in the ignored `backend/.env` file. Use `backend/.env.example` as a variable-name template. The application uses `MONGODB_URI` and `MONGODB_DB_PREFIX`; it does not use `DATABASE_URL` for runtime storage.
+
+The migration utility reads a legacy SQLite or PostgreSQL source from `LEGACY_DATABASE_URL`. Set it locally only after rotating any credentials that have been exposed. Keep both connection strings out of chat and source control. From `backend`, first inspect the source without writing:
+
+```powershell
+python migrate_to_mongodb.py
+```
+
+After reviewing source counts and confirming the legacy source (including any institution-specific database files) is accessible, transfer missing documents:
+
+```powershell
+python migrate_to_mongodb.py --apply
+```
+
+The default run is read-only. `--apply` preserves record IDs and refuses to overwrite a conflicting MongoDB document. The utility copies known application tables to same-named collections, moves tenant databases to isolated Atlas databases, and verifies each source collection's records. It does not delete or modify the legacy database. Back up both systems before migration.
 
 Each institute can select its type (School, Junior College, Degree College, Engineering College, or Other) and configure neutral labels such as **Academic unit**, **Educator**, **Learner**, and **Head role** from Settings. Academic units accept any name or category, including `Class 5`, `Class 11 Science`, `Computer Engineering`, `B.Sc. Physics`, or a custom course structure.
 
@@ -52,8 +70,7 @@ cd backend
 # 2. Activate virtual environment (Windows PowerShell)
 .\.venv\Scripts\Activate.ps1
 
-# 3. Apply database migrations
-alembic upgrade head
+# 3. Configure backend/.env with MONGODB_URI and MONGODB_DB_PREFIX
 
 # 4. Seed development data (test accounts, sample timetable, attendance & exams)
 python -m app.seeds.seed_demo
@@ -145,7 +162,6 @@ Output:
 cd docker
 docker-compose up --build -d
 ```
-Services deployed:
-- `db`: PostgreSQL 15 on port 5432
-- `backend`: FastAPI API on port 8000
+Set `MONGODB_URI` in `backend/.env` before starting Compose. Services deployed:
+- `backend`: FastAPI API on port 8000, connected to MongoDB Atlas
 - `frontend`: Nginx serving production React SPA on port 3000

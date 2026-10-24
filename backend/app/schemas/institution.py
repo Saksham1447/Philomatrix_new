@@ -21,6 +21,7 @@ class InstitutionCreate(InstitutionBase):
     principal_email: Optional[EmailStr] = None
     principal_password: Optional[str] = None
     principal_first_name: str = "Institution"
+    principal_middle_name: Optional[str] = None
     principal_last_name: str = "Principal"
 
 

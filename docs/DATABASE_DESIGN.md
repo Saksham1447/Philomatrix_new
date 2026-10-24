@@ -1,6 +1,25 @@
 # PHILOMATRIX SOFTWARE — DATABASE DESIGN & DATA MODEL SPECIFICATION
-**Document Version:** 1.0.0  
-**RDBMS:** PostgreSQL 15+ (SQLAlchemy 2.0 ORM + Alembic)  
+**Document Version:** 2.0.0
+**Database:** MongoDB Atlas (PyMongo)
+
+The collection names and logical entity structure below remain aligned with the
+former relational table names. Existing string UUIDs remain the document `_id`
+values; references remain string ID fields. Unique constraints are represented
+by MongoDB indexes, and reference validation plus configured delete cascades are
+handled by the application. Decimal, date, time, and JSON values are converted
+through the shared document codec.
+
+The control database is named `<prefix>_control` (default `philomatrix_control`). It
+holds only the platform-level data: the institution registry, platform roles and
+super-admin accounts. Each college has its own database named after the college
+(for example `Chate_Junior_College_Science_Kolhapur`), which holds all of that
+college's data (users, students, faculty, academics, attendance, exams, notices, ...).
+MongoDB databases cannot be nested, so college databases appear beside the control
+database in Atlas. Atlas limits database names to 38 characters, so filler words
+("of", "the", ...) are dropped and, only if the name is still too long or already
+taken, a short id-based suffix is added. The registry entry's `database_url` field
+stores that database name, never a connection URI.
+Application writes use MongoDB transactions on Atlas replica sets.
 
 ---
 
@@ -277,6 +296,18 @@ erDiagram
 - `is_practical_batch` (BOOLEAN, default FALSE)
 - `batch_name` (VARCHAR(20)) — e.g. "B1", "B2" (NULL for regular class)
 - CONSTRAINTS: Conflict validation triggers or uniqueness on `(timetable_version_id, faculty_id, day_of_week, period_number)` and `(timetable_version_id, division_id, day_of_week, period_number)`.
+
+#### `timetable_slots`
+Slot template per department/class. Once a class has slots, lectures for its divisions can only be scheduled in those slots (taking the slot's times and reserved subject). Principals and office staff define slots; teachers claim open slots for the subjects assigned to them.
+- `id` (UUID, Primary Key)
+- `institution_id` (UUID, FOREIGN KEY -> institutions.id, ON DELETE CASCADE)
+- `class_id` (UUID, FOREIGN KEY -> classes.id, ON DELETE CASCADE)
+- `subject_id` (UUID, NULLABLE, FOREIGN KEY -> subjects.id, ON DELETE SET NULL) — optional subject reserved for the slot
+- `day_of_week` (SMALLINT, NOT NULL) — 1 (Monday) to 6 (Saturday)
+- `period_number` (SMALLINT, NOT NULL) — 1 to 8
+- `start_time` (TIME, NOT NULL)
+- `end_time` (TIME, NOT NULL)
+- CONSTRAINTS: unique on `(class_id, day_of_week, period_number)`; slots of one class cannot overlap in time on a day.
 
 ---
 

@@ -1,189 +1,230 @@
-from pathlib import Path
-from typing import Generator, Optional
+"""MongoDB control/tenant routing and collection bootstrap."""
+from hashlib import sha1
+import re
+from threading import RLock
+import time
+from typing import Generator
 
 from fastapi import Request
-from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from pymongo import ASCENDING
+from pymongo.errors import CollectionInvalid
+from sqlalchemy.orm import declarative_base
+
 from app.core.config import settings
+from app.core.default_subjects import ensure_default_subjects
+from app.core.docstore import DocStore
+from app.core.mongo import get_mongo_client
+from app.core.schema import COLLECTIONS
 
-# Determine engine parameters based on database driver
-connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+CONTROL_SUFFIX = "_control"
+_ATLAS_DB_NAME_LIMIT = 38
+_tenant_stores: dict[str, DocStore] = {}
+_indexed_databases: set[str] = set()
+_institution_db_cache: dict[str, tuple[str | None, float]] = {}
+_cache_lock = RLock()
 
-engine = create_engine(
-    settings.DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,
-    echo=False
-)
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-_tenant_session_factories = {}
-
+# Retained as legacy schema metadata for Alembic and source-database tooling.
 Base = declarative_base()
 
 
-def ensure_control_schema() -> None:
-    """Apply additive control-plane changes without disrupting existing local databases."""
-    columns = {column["name"] for column in inspect(engine).get_columns("institutions")}
-    settings_columns = {column["name"] for column in inspect(engine).get_columns("institution_settings")}
-    if "database_url" not in columns or "institution_type" not in columns or len(settings_columns) < 9:
-        with engine.begin() as connection:
-            if "database_url" not in columns:
-                connection.execute(text("ALTER TABLE institutions ADD COLUMN database_url TEXT"))
-            if "institution_type" not in columns:
-                connection.execute(text("ALTER TABLE institutions ADD COLUMN institution_type VARCHAR(40) NOT NULL DEFAULT 'OTHER'"))
-            additions = [
-                ("institution_type", "VARCHAR(40) NOT NULL DEFAULT 'OTHER'"),
-                ("academic_unit_label", "VARCHAR(80) NOT NULL DEFAULT 'Department / Class'"),
-                ("educator_label", "VARCHAR(80) NOT NULL DEFAULT 'Faculty / Teacher'"),
-                ("learner_label", "VARCHAR(80) NOT NULL DEFAULT 'Student'"),
-                ("head_role_label", "VARCHAR(80) NOT NULL DEFAULT 'Head / Principal'"),
-            ]
-            for column_name, definition in additions:
-                if column_name not in settings_columns:
-                    connection.execute(text(f"ALTER TABLE institution_settings ADD COLUMN {column_name} {definition}"))
+def clear_store_caches() -> None:
+    """Clear per-process handles/caches; primarily useful for isolated tests."""
+    with _cache_lock:
+        _tenant_stores.clear()
+        _indexed_databases.clear()
+        _institution_db_cache.clear()
 
 
-def ensure_tenant_schema(tenant_engine) -> None:
-    """Add new configurable terminology fields to existing tenant databases."""
-    columns = {column["name"] for column in inspect(tenant_engine).get_columns("institutions")}
-    settings_columns = {column["name"] for column in inspect(tenant_engine).get_columns("institution_settings")}
-    additions = [
-        ("institutions", columns, "institution_type VARCHAR(40) NOT NULL DEFAULT 'OTHER'"),
-        ("institution_settings", settings_columns, "institution_type VARCHAR(40) NOT NULL DEFAULT 'OTHER'"),
-        ("institution_settings", settings_columns, "academic_unit_label VARCHAR(80) NOT NULL DEFAULT 'Department / Class'"),
-        ("institution_settings", settings_columns, "educator_label VARCHAR(80) NOT NULL DEFAULT 'Faculty / Teacher'"),
-        ("institution_settings", settings_columns, "learner_label VARCHAR(80) NOT NULL DEFAULT 'Student'"),
-        ("institution_settings", settings_columns, "head_role_label VARCHAR(80) NOT NULL DEFAULT 'Head / Principal'"),
-    ]
-    with tenant_engine.begin() as connection:
-        for table, existing, definition in additions:
-            column_name = definition.split(" ", 1)[0]
-            if column_name not in existing:
-                connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {definition}"))
+def _prefix() -> str:
+    prefix = settings.MONGODB_DB_PREFIX
+    if not re.fullmatch(r"[a-zA-Z0-9_-]{1,30}", prefix or ""):
+        raise ValueError("MONGODB_DB_PREFIX must contain 1-30 ASCII letters, digits, '_' or '-'")
+    return prefix
 
 
-def _tenant_database_url(database_url: str) -> str:
-    if database_url.startswith("sqlite:///"):
-        database_path = Path(database_url.removeprefix("sqlite:///"))
-        if not database_path.is_absolute():
-            database_path = Path(__file__).resolve().parents[2] / database_path
-        return f"sqlite:///{database_path}"
-    return database_url
+def _validate_database_name(name: str) -> str:
+    # Never interpret a stored legacy PostgreSQL URL or a Mongo URI as a database name.
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,38}", name):
+        raise ValueError("Institution database_url must contain a Mongo database name, not a connection URI")
+    return name
 
 
-def get_tenant_session_factory(database_url: str):
-    """Return a cached SQLAlchemy session factory for a provisioned institute database."""
-    normalized_url = _tenant_database_url(database_url)
-    if normalized_url not in _tenant_session_factories:
-        tenant_engine = create_engine(
-            normalized_url,
-            connect_args={"check_same_thread": False} if normalized_url.startswith("sqlite") else {},
-            pool_pre_ping=True,
-            echo=False,
-        )
-        _tenant_session_factories[normalized_url] = sessionmaker(
-            autocommit=False, autoflush=False, bind=tenant_engine
-        )
-        ensure_tenant_schema(tenant_engine)
-    return _tenant_session_factories[normalized_url]
+def _store_for_name(name: str) -> DocStore:
+    name = _validate_database_name(name)
+    with _cache_lock:
+        store = _tenant_stores.get(name)
+        if store is None:
+            client = get_mongo_client()
+            store = DocStore(client[name], client=client)
+            _tenant_stores[name] = store
+    if name not in _indexed_databases:
+        ensure_indexes(store)
+    return DocStore(store._database, client=store._client)
 
 
-def get_db(request: Request = None) -> Generator:
-    """Yield the control or selected institute session for the current request."""
-    session_factory = SessionLocal
-    institution_id = request.headers.get("X-Institution-ID") if request else None
-    if institution_id:
-        control_db = SessionLocal()
-        try:
-            from app.models.institution import Institution
-            institution = control_db.query(Institution).filter(Institution.id == institution_id).first()
-            if institution and institution.database_url:
-                session_factory = get_tenant_session_factory(institution.database_url)
-        finally:
-            control_db.close()
-
-    db = session_factory()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_control_store() -> DocStore:
+    return _store_for_name(f"{_prefix()}{CONTROL_SUFFIX}")
 
 
-def provision_tenant_database(institution, principal_email: Optional[str] = None,
-                              principal_password: Optional[str] = None,
-                              principal_first_name: str = "Institution",
-                              principal_last_name: str = "Principal") -> str:
-    """Create an isolated database and bootstrap its institute-level records."""
-    from app.core.security import get_password_hash
-    from app.models.institution import Institution, InstitutionSetting
-    from app.models.user import Role, User, UserRoleAssignment
-    import app.models  # noqa: F401 - register every model before create_all
+def get_tenant_store(name: str | None) -> DocStore:
+    """Return a tenant store by database name; a missing name uses the control store."""
+    if not name:
+        return get_control_store()
+    return _store_for_name(name)
 
-    data_dir = Path(__file__).resolve().parents[2] / "tenant_data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    database_path = data_dir / f"{institution.slug}.db"
-    database_url = f"sqlite:///{database_path}"
-    tenant_engine = create_engine(
-        database_url,
-        connect_args={"check_same_thread": False},
-        pool_pre_ping=True,
-        echo=False,
+
+def ensure_indexes(store: DocStore) -> None:
+    """Create all 39 same-named collections and declared indexes idempotently."""
+    with _cache_lock:
+        if store.name in _indexed_databases:
+            return
+        existing = set(store._database.list_collection_names())
+        for name, spec in COLLECTIONS.items():
+            if name not in existing:
+                try:
+                    store._database.create_collection(name)
+                except CollectionInvalid:
+                    # Another worker may have won the create race.
+                    if name not in store._database.list_collection_names():
+                        raise
+            collection = store._database[name]
+            for index in spec.indexes:
+                keys = [(key, ASCENDING) for key in index.fields]
+                options = {"unique": index.unique, "name": index.name}
+                if index.partial_filter is not None:
+                    options["partialFilterExpression"] = index.partial_filter
+                collection.create_index(keys, **options)
+        _indexed_databases.add(store.name)
+
+
+_NAME_FILLER_WORDS = {"of", "the", "and", "for", "at", "in"}
+_RESERVED_DATABASE_NAMES = {"admin", "local", "config"}
+
+
+def _safe_tenant_db_name(institution, *, force_suffix: bool = False) -> str:
+    """Name an institute's database after the college, e.g. Chate_Junior_College_Science_Kolhapur.
+
+    Atlas limits database names to 38 bytes, so filler words are dropped first and a short
+    id-derived suffix is appended only if the name is still too long, empty or reserved.
+    """
+    institution_id = _read(institution, "id", "")
+    title = str(_read(institution, "name", "") or _read(institution, "slug", "") or "")
+    words = re.findall(r"[A-Za-z0-9]+", title)
+    base = "_".join(words)
+    if len(base) > _ATLAS_DB_NAME_LIMIT:
+        base = "_".join(word for word in words if word.lower() not in _NAME_FILLER_WORDS)
+    control = f"{_prefix()}{CONTROL_SUFFIX}".lower()
+    needs_suffix = (
+        force_suffix
+        or not base
+        or len(base) > _ATLAS_DB_NAME_LIMIT
+        or base.lower() in _RESERVED_DATABASE_NAMES | {control}
     )
-    Base.metadata.create_all(bind=tenant_engine)
-    tenant_session = sessionmaker(autocommit=False, autoflush=False, bind=tenant_engine)
-    db = tenant_session()
+    if needs_suffix:
+        suffix = "_" + sha1(str(institution_id).encode("utf-8")).hexdigest()[:6]
+        base = (base or "College")[:_ATLAS_DB_NAME_LIMIT - len(suffix)].rstrip("_") + suffix
+    return _validate_database_name(base)
+
+
+def _read(value, key: str, default=None):
+    if isinstance(value, dict):
+        return value.get(key, default)
+    return getattr(value, key, default)
+
+
+def _institution_data(institution, db_name: str) -> dict:
+    fields = (
+        "id", "slug", "name", "code", "status", "address", "city", "state",
+        "pincode", "phone", "email", "logo_url", "institution_type",
+    )
+    return {key: _read(institution, key) for key in fields if _read(institution, key) is not None} | {"database_url": db_name}
+
+
+def provision_tenant_database(institution, principal_email: str | None = None,
+                              principal_password: str | None = None,
+                              principal_first_name: str = "Institution",
+                              principal_middle_name: str | None = None,
+                              principal_last_name: str = "Principal") -> str:
+    """Create and bootstrap a clean isolated database with compensating cleanup on failure."""
+    name = _safe_tenant_db_name(institution)
+    client = get_mongo_client()
+    # Another college may already use this name (MongoDB also treats names differing only by case as clashes).
+    if any(existing.lower() == name.lower() for existing in client.list_database_names()):
+        name = _safe_tenant_db_name(institution, force_suffix=True)
+    if client[name].list_collection_names():
+        raise ValueError("Tenant database already contains collections; refusing to overwrite it")
+    clear_cached_institution(_read(institution, "id", ""))
     try:
-        tenant_institution = Institution(
-            id=institution.id,
-            slug=institution.slug,
-            name=institution.name,
-            code=institution.code,
-            status=institution.status,
-            address=institution.address,
-            city=institution.city,
-            state=institution.state,
-            pincode=institution.pincode,
-            phone=institution.phone,
-            email=institution.email,
-            logo_url=institution.logo_url,
-            institution_type=institution.institution_type,
-        )
-        db.add(tenant_institution)
-        db.add(InstitutionSetting(institution_id=institution.id, institution_type=institution.institution_type))
-        role_names = ["SUPER_ADMIN", "PRINCIPAL", "FACULTY", "STUDENT", "PARENT", "OFFICE_STAFF"]
-        roles = {}
-        for role_name in role_names:
-            role = Role(name=role_name, description=f"{role_name} role permissions")
-            db.add(role)
-            db.flush()
-            roles[role_name] = role
+        store = _store_for_name(name)
+        store.insert("institutions", _institution_data(institution, name))
+        store.insert("institution_settings", {
+            "institution_id": str(_read(institution, "id")),
+            "institution_type": _read(institution, "institution_type", "OTHER") or "OTHER",
+        })
+        role_names = ("SUPER_ADMIN", "PRINCIPAL", "FACULTY", "STUDENT", "PARENT", "OFFICE_STAFF")
+        roles = {role_name: store.insert("roles", {
+            "name": role_name,
+            "description": f"{role_name} role permissions",
+        }) for role_name in role_names}
+        ensure_default_subjects(store, str(_read(institution, "id")))
         if principal_email and principal_password:
-            username = principal_email.split("@", 1)[0]
-            principal = User(
-                institution_id=institution.id,
-                username=username,
-                email=principal_email,
-                password_hash=get_password_hash(principal_password),
-                first_name=principal_first_name,
-                last_name=principal_last_name,
-                is_active=True,
-                is_verified=True,
-            )
-            db.add(principal)
-            db.flush()
-            db.add(UserRoleAssignment(
-                user_id=principal.id,
-                role_id=roles["PRINCIPAL"].id,
-                institution_id=institution.id,
-            ))
-        db.commit()
+            from app.core.security import get_password_hash
+            principal = store.insert("users", {
+                "institution_id": str(_read(institution, "id")),
+                "username": principal_email.split("@", 1)[0],
+                "email": principal_email,
+                "password_hash": get_password_hash(principal_password),
+                "first_name": principal_first_name,
+                "middle_name": principal_middle_name,
+                "last_name": principal_last_name,
+                "is_active": True,
+                "is_verified": True,
+            })
+            store.insert("user_role_assignments", {
+                "user_id": principal.id,
+                "role_id": roles["PRINCIPAL"].id,
+                "institution_id": str(_read(institution, "id")),
+            })
+        return name
     except Exception:
-        db.rollback()
+        client.drop_database(name)
+        with _cache_lock:
+            _tenant_stores.pop(name, None)
+            _indexed_databases.discard(name)
         raise
-    finally:
-        db.close()
-    _tenant_session_factories.pop(database_url, None)
-    return database_url
+
+
+def clear_cached_institution(institution_id: str) -> None:
+    with _cache_lock:
+        _institution_db_cache.pop(str(institution_id), None)
+
+
+def invalidate_institution_cache(institution_id: str) -> None:
+    """Public invalidation hook for institution provisioning/update routes."""
+    clear_cached_institution(institution_id)
+
+
+def _institution_database_name(institution_id: str, control: DocStore) -> str | None:
+    now = time.monotonic()
+    with _cache_lock:
+        cached = _institution_db_cache.get(institution_id)
+        if cached and cached[1] > now:
+            return cached[0]
+    institution = control.find_one("institutions", {"id": institution_id})
+    name = institution.database_url if institution else None
+    with _cache_lock:
+        _institution_db_cache[institution_id] = (name, now + 60.0)
+    return name
+
+
+def get_db(request: Request) -> Generator[DocStore, None, None]:
+    """Yield control DB or the institution DB selected by X-Institution-ID."""
+    control = get_control_store()
+    institution_id = request.headers.get("X-Institution-ID")
+    if institution_id:
+        database_name = _institution_database_name(institution_id, control)
+        store = get_tenant_store(database_name)
+    else:
+        store = control
+    with store.request_scope():
+        yield store

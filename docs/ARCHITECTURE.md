@@ -18,8 +18,8 @@ PHILOMATRIX SOFTWARE is an enterprise-grade, multi-institution Junior College Ed
 2. **Immutable Audit Trails & Approval Governance:** Sensitive academic records (attendance, marks, result publications) cannot be silently overwritten. Any retroactive change requires a formal correction request, reason, and Principal approval.
 3. **Decoupled Three-Tier Architecture:** 
    - **Frontend:** Modern Single Page Application (SPA) built with React 19, TypeScript (strict mode), Vite, Tailwind CSS, TanStack Query for caching and server state, React Hook Form + Zod for runtime schema validation.
-   - **Backend:** High-performance RESTful API using Python 3.12, FastAPI, Pydantic v2 schemas, SQLAlchemy 2.0 ORM, and Alembic migrations.
-   - **Database:** PostgreSQL (with SQLite compatibility for lightning-fast localized test execution).
+   - **Backend:** REST API using Python 3.12, FastAPI, Pydantic v2 schemas, and PyMongo.
+   - **Database:** MongoDB Atlas, with a control database and a separate database per institution.
 4. **Defense-in-Depth Security:** Short-lived JWT access tokens + secure refresh tokens, Argon2id/bcrypt password hashing, server-side RBAC, rate-limiting on sensitive endpoints, secure file storage with signed streaming, and input sanitization.
 
 ---
@@ -84,24 +84,28 @@ graph TD
     end
 
     subgraph Data ["Data & Storage Layer"]
-        DB[(PostgreSQL Primary DB)]
+        DB[(MongoDB Atlas Control DB)]
+        TENANTDB[(MongoDB Atlas Tenant DBs)]
         Files[(Secure Uploads / Local Storage)]
     end
 
     Clients --> Gateway
     Gateway --> Services
-    Services --> Data
+    Services --> DB
+    Services --> TENANTDB
+    Services --> Files
 ```
 
 ---
 
 ## 4. TENANT ISOLATION MODEL
 
-Multi-tenancy in PHILOMATRIX is implemented using **logical row-level segregation** within a shared database instance:
-1. Every institution-specific table contains an indexed foreign key: `institution_id UUID NOT NULL REFERENCES institutions(id) ON DELETE CASCADE`.
-2. The authenticated user's token carries their verified `institution_id` and assigned roles.
-3. Every repository and service query enforces `.where(Model.institution_id == current_user.institution_id)` automatically via base repository helpers or explicit query filtering.
-4. SaaS Super Admins can switch context or manage institutions globally, while institutional users are strictly locked to their single tenant domain.
+Multi-tenancy uses **database-per-institution isolation**:
+1. The control database stores the institution directory and platform-level records. Each provisioned institution has a separate Atlas database.
+2. Requests select the tenant using `X-Institution-ID`; the backend resolves its database name from the control database and validates that name before routing.
+3. Tenant documents retain the existing `institution_id` reference fields and use indexed filters for institution-scoped operations.
+4. The authenticated user's token carries their verified `institution_id` and assigned roles. Cross-institution access remains restricted by server-side authorization.
+5. Reference validation and delete cascades preserve the former relational relationships. Multi-document writes use Atlas transactions.
 
 ---
 

@@ -19,7 +19,7 @@ export const StaffPage: React.FC = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ email: '', password: '', first_name: '', last_name: '', phone_number: '' });
+  const [form, setForm] = useState({ email: '', password: '', first_name: '', middle_name: '', last_name: '', phone_number: '' });
 
   const loadStaff = async () => {
     if (!user?.institution_id) return;
@@ -43,7 +43,7 @@ export const StaffPage: React.FC = () => {
     try {
       await api.post(`/institutions/${user.institution_id}/staff`, form);
       setMessage('Office staff account created inside this institute database.');
-      setForm({ email: '', password: '', first_name: '', last_name: '', phone_number: '' });
+      setForm({ email: '', password: '', first_name: '', middle_name: '', last_name: '', phone_number: '' });
       setShowForm(false);
       await loadStaff();
     } catch (err: any) {
@@ -67,7 +67,7 @@ export const StaffPage: React.FC = () => {
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       {showForm && <form onSubmit={submit} className="premium-card grid gap-4 p-5 sm:grid-cols-2 sm:p-7">
         {([
-          ['first_name', 'First name', 'text'], ['last_name', 'Last name', 'text'],
+          ['first_name', 'First name', 'text'], ['middle_name', 'Middle name', 'text'], ['last_name', 'Last name', 'text'],
           ['email', 'Email', 'email'], ['password', 'Temporary password', 'password'], ['phone_number', 'Phone number', 'text'],
         ] as [keyof typeof form, string, string][]).map(([field, label, type]) => <label key={field}><span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span><input required={field !== 'phone_number'} type={type} value={form[field]} onChange={(event) => update(field, event.target.value)} className="premium-input w-full" /></label>)}
         <div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={() => setShowForm(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-slate-500">Cancel</button><button disabled={saving} className="rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? 'Creating...' : 'Create account'}</button></div>

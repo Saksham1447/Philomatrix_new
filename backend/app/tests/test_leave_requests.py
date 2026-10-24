@@ -1,8 +1,9 @@
+from datetime import date
+
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.core.database import SessionLocal
-from app.models.leave import FacultyLeaveRequest
+from app.core.database import get_control_store
 
 
 client = TestClient(app)
@@ -18,13 +19,10 @@ def login(username_or_email: str, password: str) -> str:
 
 
 def test_faculty_can_submit_and_office_staff_can_review_leave_request():
-    db = SessionLocal()
-    db.query(FacultyLeaveRequest).filter(
-        FacultyLeaveRequest.start_date == "2099-01-10",
-        FacultyLeaveRequest.end_date == "2099-01-12",
-    ).delete(synchronize_session=False)
-    db.commit()
-    db.close()
+    get_control_store().delete_many(
+        "faculty_leave_requests",
+        {"start_date": date(2099, 1, 10), "end_date": date(2099, 1, 12)},
+    )
 
     faculty_token = login("physics.prof@royalscience.edu", "Faculty@Pass2026")
     office_token = login("admissions@royalscience.edu", "Staff@Pass2026")

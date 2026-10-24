@@ -5,6 +5,7 @@ export interface UserProfile {
   username: string;
   email: string;
   first_name: string;
+  middle_name?: string | null;
   last_name: string;
   full_name: string;
   phone_number?: string;
@@ -96,6 +97,7 @@ export interface Student {
   admission_number: string;
   roll_number?: string;
   first_name: string;
+  middle_name?: string | null;
   last_name: string;
   full_name: string;
   email: string;

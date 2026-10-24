@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   CalendarCheck,
   Calendar,
+  CalendarClock,
   Award,
   FileText,
   Users,
@@ -39,6 +40,12 @@ export const Sidebar: React.FC = () => {
       path: '/timetable',
       icon: Calendar,
       roles: ['PRINCIPAL', 'FACULTY', 'STUDENT', 'PARENT', 'OFFICE_STAFF']
+    },
+    {
+      label: 'Time Slots',
+      path: '/timetable-slots',
+      icon: CalendarClock,
+      roles: ['PRINCIPAL', 'OFFICE_STAFF']
     },
     {
       label: 'Examinations & Marks',

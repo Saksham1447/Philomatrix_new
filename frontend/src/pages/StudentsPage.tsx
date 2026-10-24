@@ -20,11 +20,12 @@ export const StudentsPage: React.FC = () => {
     email: '',
     password: '',
     first_name: '',
+    middle_name: '',
     last_name: '',
     phone_number: '',
     admission_number: '',
     date_of_birth: '2009-01-01',
-    gender: 'MALE',
+    gender: '',
     admission_date: new Date().toISOString().split('T')[0],
     class_id: classFilter || '',
     division_id: '',
@@ -163,9 +164,11 @@ export const StudentsPage: React.FC = () => {
               <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-xs text-slate-600">
                 {st.first_name[0]}
               </div>
+              {activeRole !== 'OFFICE_STAFF' && (
               <button type="button" onClick={() => handleDeleteStudent(st.id)} className="rounded-lg p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600" aria-label={`Remove ${st.full_name}`}>
                 <Trash2 className="w-4 h-4" />
               </button>
+              )}
             </div>
 
             <div className="space-y-1.5 pt-3 border-t border-slate-100 text-xs text-slate-600">
@@ -199,6 +202,16 @@ export const StudentsPage: React.FC = () => {
                     required
                     value={formData.first_name}
                     onChange={e => setFormData({ ...formData, first_name: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg bg-slate-50"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Middle Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={formData.middle_name}
+                    onChange={e => setFormData({ ...formData, middle_name: e.target.value })}
                     className="w-full px-3 py-2 border rounded-lg bg-slate-50"
                   />
                 </div>
@@ -269,7 +282,7 @@ export const StudentsPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Admission Number</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Student ID (Admission Number)</label>
                   <input
                     type="text"
                     required
@@ -278,6 +291,23 @@ export const StudentsPage: React.FC = () => {
                     onChange={e => setFormData({ ...formData, admission_number: e.target.value })}
                     className="w-full px-3 py-2 border rounded-lg bg-slate-50"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Gender</label>
+                  <select
+                    required
+                    value={formData.gender}
+                    onChange={e => setFormData({ ...formData, gender: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg bg-slate-50"
+                  >
+                    <option value="">Select gender</option>
+                    <option value="MALE">Male</option>
+                    <option value="FEMALE">Female</option>
+                    <option value="OTHER">Other</option>
+                  </select>
                 </div>
               </div>
 

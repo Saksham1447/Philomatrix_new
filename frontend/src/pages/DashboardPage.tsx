@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { formatIndianTime } from '../utils/time';
+import { useIsEngineeringCollege } from '../hooks/useIsEngineeringCollege';
 import { Link } from 'react-router-dom';
 import {
   Users,
@@ -34,10 +35,18 @@ export const DashboardPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showFacultyForm, setShowFacultyForm] = useState(false);
   const [facultyMessage, setFacultyMessage] = useState<string | null>(null);
+  const isEngineering = useIsEngineeringCollege();
+  const [departmentNames, setDepartmentNames] = useState<string[]>([]);
   const [facultyForm, setFacultyForm] = useState({
-    username: '', email: '', password: '', first_name: '', last_name: '',
-    phone_number: '', employee_id: '', designation: 'Lecturer', department: 'Science', qualification: '',
+    username: '', email: '', password: '', first_name: '', middle_name: '', last_name: '',
+    phone_number: '', employee_id: '', gender: '', designation: 'Lecturer', department: '', qualification: '',
   });
+
+  useEffect(() => {
+    if (isEngineering && showFacultyForm) {
+      api.get<{ name: string }[]>('/academics/classes').then(items => setDepartmentNames(items.map(item => item.name))).catch(() => setDepartmentNames([]));
+    }
+  }, [isEngineering, showFacultyForm]);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -103,12 +112,13 @@ export const DashboardPage: React.FC = () => {
   const addFacultyMember = async (event: React.FormEvent) => {
     event.preventDefault();
     try {
-      await api.post('/faculty', facultyForm);
+      const { department, ...withoutDepartment } = facultyForm;
+      await api.post('/faculty', isEngineering ? facultyForm : withoutDepartment);
       setFacultyMessage('Faculty member added successfully. They can now sign in.');
       setShowFacultyForm(false);
       setFacultyForm({
-        username: '', email: '', password: '', first_name: '', last_name: '',
-        phone_number: '', employee_id: '', designation: 'Lecturer', department: 'Science', qualification: '',
+        username: '', email: '', password: '', first_name: '', middle_name: '', last_name: '',
+        phone_number: '', employee_id: '', gender: '', designation: 'Lecturer', department: '', qualification: '',
       });
     } catch (err: any) {
       setFacultyMessage(err.message || 'Unable to add faculty member.');
@@ -463,7 +473,7 @@ export const DashboardPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {facultyRegistrations.filter(request => request.status === 'PENDING').map(request => (
                 <div key={request.id} className="rounded-xl border border-slate-200 p-4 shadow-sm">
-                  <p className="font-bold text-slate-900">{request.first_name} {request.last_name}</p>
+                  <p className="font-bold text-slate-900">{[request.first_name, request.middle_name, request.last_name].filter(Boolean).join(' ')}</p>
                   <p className="text-xs text-slate-500 mt-1">{request.email} • {request.employee_id}</p>
                   <div className="grid grid-cols-2 gap-2 mt-4">
                     <button onClick={() => reviewFacultyRegistration(request.id, 'APPROVED')} className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold">Approve</button>
@@ -485,14 +495,29 @@ export const DashboardPage: React.FC = () => {
             </div>
             <form onSubmit={addFacultyMember} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
-                ['first_name', 'First name'], ['last_name', 'Last name'], ['username', 'Username'],
-                ['email', 'Official email'], ['password', 'Temporary password'], ['employee_id', 'Employee ID'],
-                ['phone_number', 'Phone number'], ['designation', 'Designation'], ['department', 'Department'],
+                ['first_name', 'First name'], ['middle_name', 'Middle name'], ['last_name', 'Last name'], ['username', 'Username'],
+                ['email', 'Official email'], ['password', 'Temporary password'], ['employee_id', 'Faculty ID (Employee ID)'], ['gender', 'Gender'],
+                ['phone_number', 'Phone number'], ['designation', 'Designation'],
+                ...(isEngineering ? [['department', 'Department']] : []),
                 ['qualification', 'Qualification'],
               ].map(([key, label]) => (
                 <label key={key} className="text-xs font-semibold text-slate-600">
                   {label}
-                  <input required={['first_name', 'last_name', 'username', 'email', 'password', 'employee_id'].includes(key)} type={key === 'password' ? 'password' : key === 'email' ? 'email' : 'text'} value={(facultyForm as any)[key]} onChange={e => setFacultyForm(current => ({ ...current, [key]: e.target.value }))} className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                  {key === 'gender' ? (
+                    <select required value={facultyForm.gender} onChange={e => setFacultyForm(current => ({ ...current, gender: e.target.value }))} className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                      <option value="">Select gender</option>
+                      <option value="MALE">Male</option>
+                      <option value="FEMALE">Female</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  ) : key === 'department' ? (
+                    <select required value={facultyForm.department} onChange={e => setFacultyForm(current => ({ ...current, department: e.target.value }))} className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-200">
+                      <option value="">Select department</option>
+                      {departmentNames.map(name => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                  ) : (
+                    <input required={['first_name', 'middle_name', 'last_name', 'username', 'email', 'password', 'employee_id', 'gender'].includes(key)} type={key === 'password' ? 'password' : key === 'email' ? 'email' : 'text'} value={(facultyForm as any)[key]} onChange={e => setFacultyForm(current => ({ ...current, [key]: e.target.value }))} className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-normal focus:outline-none focus:ring-2 focus:ring-indigo-200" />
+                  )}
                 </label>
               ))}
               <button type="submit" className="sm:col-span-2 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold">Create Faculty Account</button>

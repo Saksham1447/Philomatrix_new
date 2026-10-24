@@ -21,7 +21,10 @@ from app.models import Base
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+if not settings.LEGACY_DATABASE_URL:
+    raise RuntimeError("Set LEGACY_DATABASE_URL to a legacy SQL database before running Alembic")
+
+config.set_main_option("sqlalchemy.url", settings.LEGACY_DATABASE_URL)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:

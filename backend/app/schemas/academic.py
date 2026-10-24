@@ -88,9 +88,11 @@ class FacultyCreate(BaseModel):
     email: EmailStr
     password: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: Optional[str] = None
     employee_id: str
+    gender: Optional[str] = None
     designation: str = "Lecturer"
     department: str = "General"
     qualification: Optional[str] = None
@@ -101,10 +103,12 @@ class FacultyResponse(BaseModel):
     user_id: str
     employee_id: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     full_name: str
     email: str
     phone_number: Optional[str] = None
+    gender: Optional[str] = None
     designation: str
     department: str
     qualification: Optional[str] = None

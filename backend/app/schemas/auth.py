@@ -25,6 +25,7 @@ class UserProfileResponse(BaseModel):
     # such as .local, so profile responses must preserve the stored address.
     email: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     full_name: str
     phone_number: Optional[str] = None

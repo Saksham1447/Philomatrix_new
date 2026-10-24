@@ -7,6 +7,7 @@ class StaffCreate(BaseModel):
     email: EmailStr
     password: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: Optional[str] = None
 
@@ -16,6 +17,7 @@ class StaffResponse(BaseModel):
     username: str
     email: EmailStr
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     full_name: str
     phone_number: Optional[str] = None

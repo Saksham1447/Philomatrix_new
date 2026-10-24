@@ -8,6 +8,7 @@ class FacultyRegistrationCreate(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8)
     first_name: str = Field(min_length=1, max_length=100)
+    middle_name: Optional[str] = None
     last_name: str = Field(min_length=1, max_length=100)
     phone_number: Optional[str] = None
     employee_id: str = Field(min_length=1, max_length=50)
@@ -27,6 +28,7 @@ class FacultyRegistrationResponse(BaseModel):
     username: str
     email: str
     first_name: str
+    middle_name: Optional[str] = None
     last_name: str
     phone_number: Optional[str] = None
     employee_id: str

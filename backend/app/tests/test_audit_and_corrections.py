@@ -2,11 +2,7 @@ import pytest
 from decimal import Decimal
 from fastapi.testclient import TestClient
 from app.main import app
-from app.core.database import SessionLocal
-from app.models.student import Student
-from app.models.academic import Division, Subject, FacultyProfile
-from app.models.examination import Examination, ExamSubject, MarksApproval
-from app.models.communication import FeedbackForm, FeedbackQuestion
+from app.core.database import get_control_store
 
 client = TestClient(app)
 
@@ -25,11 +21,10 @@ def test_principal_cannot_mark_attendance_without_faculty_assignment():
     token_principal = get_token("principal@royalscience.edu", "Royal@Principal2026")
 
     # Fetch division and subject
-    db = SessionLocal()
-    div = db.query(Division).first()
-    subj = db.query(Subject).first()
-    student = db.query(Student).first()
-    db.close()
+    db = get_control_store()
+    div = db.find_one("divisions")
+    subj = db.find_one("subjects")
+    student = db.find_one("students")
 
     payload = {
         "division_id": div.id,

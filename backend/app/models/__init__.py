@@ -13,7 +13,7 @@ from app.models.academic import (
     FacultySubjectAssignment,
 )
 from app.models.student import Student, Guardian, StudentGuardianLink, Enrollment
-from app.models.timetable import TimetableVersion, TimetableEntry
+from app.models.timetable import TimetableVersion, TimetableEntry, TimetableSlot
 from app.models.attendance import (
     AttendanceSession,
     AttendanceRecord,
@@ -59,6 +59,7 @@ __all__ = [
     "Enrollment",
     "TimetableVersion",
     "TimetableEntry",
+    "TimetableSlot",
     "AttendanceSession",
     "AttendanceRecord",
     "AttendanceCorrectionRequest",

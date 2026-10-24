@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.core.config import settings
-from app.core.database import Base, engine, ensure_control_schema
-import app.models  # ensure all models are registered
+from app.core.database import ensure_indexes, get_control_store
 from app.api.v1 import (
     auth,
     institutions,
@@ -19,20 +19,15 @@ from app.api.v1 import (
     faculty_registrations,
 )
 
-# Initialize database tables
-Base.metadata.create_all(bind=engine)
-ensure_control_schema()
-
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    description="Multi-Institution Junior College ERP SaaS Platform — Version 1.0 (Indian Junior Colleges: Class 11 & 12 Science)",
+    description="Multi-Institution Junior College ERP SaaS Platform ? Version 1.0 (Indian Junior Colleges: Class 11 & 12 Science)",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/api/v1/openapi.json"
+    openapi_url="/api/v1/openapi.json",
 )
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS or ["*"],
@@ -41,7 +36,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount Domain Routers under /api/v1
+
+@app.on_event("startup")
+def bootstrap_mongodb() -> None:
+    """Prepare all control collections/indexes; actual Atlas connection is lazy until here."""
+    ensure_indexes(get_control_store())
+
+
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(institutions.router, prefix=settings.API_V1_STR)
 app.include_router(academics.router, prefix=settings.API_V1_STR)
@@ -57,22 +58,17 @@ app.include_router(leave_requests.router, prefix=settings.API_V1_STR)
 app.include_router(faculty_registrations.router, prefix=settings.API_V1_STR)
 
 
-
 @app.get("/api/health", tags=["Health"])
 def health_check():
-    """System health and operational status check."""
     return {
         "status": "healthy",
         "app": settings.PROJECT_NAME,
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
-        "target": "Junior College Science ERP (Class 11 & 12)"
+        "target": "Junior College Science ERP (Class 11 & 12)",
     }
 
 
 @app.get("/", tags=["Root"])
 def root():
-    return {
-        "message": f"Welcome to {settings.PROJECT_NAME} API v1.0",
-        "documentation": "/docs"
-    }
+    return {"message": f"Welcome to {settings.PROJECT_NAME} API v1.0", "documentation": "/docs"}

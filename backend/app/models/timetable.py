@@ -40,3 +40,20 @@ class TimetableEntry(BaseModel):
     subject = relationship("Subject")
     faculty = relationship("FacultyProfile", back_populates="timetable_entries")
     attendance_sessions = relationship("AttendanceSession", back_populates="timetable_entry")
+
+
+class TimetableSlot(BaseModel):
+    """Per department/class slot template: the periods (and optionally subject) of each weekday."""
+    __tablename__ = "timetable_slots"
+
+    institution_id = Column(String(36), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    class_id = Column(String(36), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id = Column(String(36), ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
+    day_of_week = Column(SmallInteger, nullable=False)  # 1 (Monday) - 6 (Saturday)
+    period_number = Column(SmallInteger, nullable=False)  # 1 to 8
+    start_time = Column(Time, nullable=False)
+    end_time = Column(Time, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("class_id", "day_of_week", "period_number", name="uq_slot_class_day_period"),
+    )

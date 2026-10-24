@@ -83,6 +83,7 @@ class FacultyProfile(BaseModel):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     institution_id = Column(String(36), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
     employee_id = Column(String(50), nullable=False)
+    gender = Column(String(20), nullable=True)  # MALE, FEMALE, OTHER
     designation = Column(String(100), default="Lecturer", nullable=False)
     department = Column(String(100), default="General", nullable=False)
     qualification = Column(String(200), nullable=True)
