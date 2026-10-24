@@ -268,7 +268,12 @@ export const TimetablePage: React.FC = () => {
                           <button
                             type="button"
                             disabled={activeRole !== 'FACULTY' && !isAdminView}
-                            onClick={() => (activeRole === 'FACULTY' || isAdminView) && setSelectedSlot({ day: d.num, period: p })}
+                            onClick={() => {
+                              if (activeRole === 'FACULTY' || isAdminView) {
+                                setError(null);
+                                setSelectedSlot({ day: d.num, period: p });
+                              }
+                            }}
                             className={`h-20 w-full rounded-xl border border-dashed flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
                               activeRole === 'FACULTY' || isAdminView
                                 ? 'border-slate-300 text-slate-400 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 cursor-pointer'
@@ -299,6 +304,7 @@ export const TimetablePage: React.FC = () => {
                 </div>
                 <button type="button" onClick={() => setSelectedSlot(null)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"><X className="w-4 h-4" /></button>
               </div>
+              {error && <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-xs font-semibold text-rose-700">{error}</div>}
               <form onSubmit={saveSlot} className="space-y-4">
                 {isAdminView ? <>
                   <label className="block text-xs font-semibold text-slate-700">

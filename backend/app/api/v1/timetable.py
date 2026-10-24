@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.deps import get_db, get_current_user, require_roles, verify_student_access
@@ -182,7 +183,15 @@ def create_timetable_entry(
         if not active_year:
             active_year = db.find_one("academic_years", {"institution_id": current_user.institution_id})
         if not active_year:
-            raise HTTPException(status_code=400, detail="No academic year found")
+            current_year = date.today().year
+            active_year = db.insert("academic_years", {
+                "institution_id": current_user.institution_id,
+                "name": f"{current_year}-{current_year + 1}",
+                "start_date": date(current_year, 6, 1),
+                "end_date": date(current_year + 1, 5, 31),
+                "is_current": True,
+                "is_archived": False,
+            })
 
         tt_version = db.find_one(
             "timetable_versions",
