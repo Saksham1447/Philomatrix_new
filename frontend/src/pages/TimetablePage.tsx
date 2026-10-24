@@ -28,6 +28,7 @@ export const TimetablePage: React.FC = () => {
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedDivisionId, setSelectedDivisionId] = useState('');
   const [slotTimes, setSlotTimes] = useState<Record<number, [string, string]>>({});
+  const [slotSubjects, setSlotSubjects] = useState<Record<string, string | null>>({});
 
   const days = [
     { num: 1, name: 'Monday' },
@@ -93,11 +94,13 @@ export const TimetablePage: React.FC = () => {
           if (!selectedDivisionId) {
             setEntries([]);
             setSlotTimes({});
+            setSlotSubjects({});
             return;
           }
           url = `/timetable?division_id=${selectedDivisionId}`;
-          const slots = await api.get<Array<{ period_number: number; start_time: string; end_time: string }>>(`/timetable/slots?division_id=${selectedDivisionId}`);
+          const slots = await api.get<Array<{ day_of_week: number; period_number: number; start_time: string; end_time: string; subject_id?: string | null }>>(`/timetable/slots?division_id=${selectedDivisionId}`);
           setSlotTimes(Object.fromEntries(slots.map((slot) => [slot.period_number, [slot.start_time, slot.end_time]])));
+          setSlotSubjects(Object.fromEntries(slots.map((slot) => [`${slot.day_of_week}-${slot.period_number}`, slot.subject_id || null])));
         }
 
         const data = await api.get<TimetableEntry[]>(url);
@@ -283,7 +286,7 @@ export const TimetablePage: React.FC = () => {
                               if (canCreateSchedule) {
                                 setError(null);
                                 if (isAdminView) {
-                                  setSelectedSubjectId('');
+                                  setSelectedSubjectId(slotSubjects[`${d.num}-${p}`] || '');
                                   setSelectedFacultyId('');
                                   setFacultyEntries([]);
                                 }
@@ -333,8 +336,12 @@ export const TimetablePage: React.FC = () => {
                     Subject
                     <select required value={selectedSubjectId} onChange={event => setSelectedSubjectId(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50">
                       <option value="">Select subject</option>
-                      {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.code} · {subject.name}</option>)}
+                      {subjects.filter(subject => {
+                        const reservedSubjectId = selectedSlot ? slotSubjects[`${selectedSlot.day}-${selectedSlot.period}`] : null;
+                        return !reservedSubjectId || subject.id === reservedSubjectId;
+                      }).map(subject => <option key={subject.id} value={subject.id}>{subject.code} · {subject.name}</option>)}
                     </select>
+                    {selectedSlot && slotSubjects[`${selectedSlot.day}-${selectedSlot.period}`] && <span className="mt-1 block text-[11px] font-medium text-amber-700">This time slot is reserved for the configured subject.</span>}
                   </label>
                   <label className="block text-xs font-semibold text-slate-700">
                     Faculty
