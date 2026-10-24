@@ -371,7 +371,7 @@ export const TimetablePage: React.FC = () => {
                 </label>
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   <button type="button" onClick={() => setSelectedSlot(null)} className="px-4 py-2 rounded-lg border text-xs font-bold text-slate-600">Cancel</button>
-                  <button type="submit" disabled={isSaving || assignments.length === 0} className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold">
+                  <button type="submit" disabled={isSaving || (!isAdminView && assignments.length === 0)} className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold">
                     {isSaving ? 'Scheduling...' : 'Schedule Slot'}
                   </button>
                 </div>
