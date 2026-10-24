@@ -9,6 +9,7 @@ import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, Filter } from 'lucide
 export const TimetablePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
   const isAdminView = activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF' || activeRole === 'SUPER_ADMIN';
+  const canCreateSchedule = activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY';
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [assignments, setAssignments] = useState<Array<{ subject_id: string; subject_name: string; subject_code: string; division_id: string; division_name: string; class_name: string }>>([]);
@@ -123,8 +124,18 @@ export const TimetablePage: React.FC = () => {
     if (!selectedSlot) return;
     const adminSchedule = isAdminView;
     const assignment = assignments.find(item => item.subject_id + item.division_id === selectedAssignment);
-    if (!adminSchedule && (!user?.faculty_id || !assignment)) return;
-    if (adminSchedule && (!selectedDivisionId || !selectedSubjectId || !selectedFacultyId)) return;
+    if (!canCreateSchedule) {
+      setError('Your role can view the timetable but cannot schedule lectures.');
+      return;
+    }
+    if (!adminSchedule && (!user?.faculty_id || !assignment)) {
+      setError('Select one of your assigned classes and subjects before scheduling.');
+      return;
+    }
+    if (adminSchedule && (!selectedDivisionId || !selectedSubjectId || !selectedFacultyId)) {
+      setError('Select a division, subject, and faculty member before scheduling.');
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
@@ -267,21 +278,26 @@ export const TimetablePage: React.FC = () => {
                         ) : (
                           <button
                             type="button"
-                            disabled={activeRole !== 'FACULTY' && !isAdminView}
+                            disabled={!canCreateSchedule}
                             onClick={() => {
-                              if (activeRole === 'FACULTY' || isAdminView) {
+                              if (canCreateSchedule) {
                                 setError(null);
+                                if (isAdminView) {
+                                  setSelectedSubjectId('');
+                                  setSelectedFacultyId('');
+                                  setFacultyEntries([]);
+                                }
                                 setSelectedSlot({ day: d.num, period: p });
                               }
                             }}
                             className={`h-20 w-full rounded-xl border border-dashed flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
-                              activeRole === 'FACULTY' || isAdminView
+                              canCreateSchedule
                                 ? 'border-slate-300 text-slate-400 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 cursor-pointer'
                                 : 'border-transparent text-slate-300'
                             }`}
                           >
-                            {(activeRole === 'FACULTY' || isAdminView) && <Plus className="w-4 h-4" />}
-                            <span>{activeRole === 'FACULTY' || isAdminView ? 'Add lecture' : '—'}</span>
+                            {canCreateSchedule && <Plus className="w-4 h-4" />}
+                            <span>{canCreateSchedule ? 'Add lecture' : '—'}</span>
                           </button>
                         )}
                       </td>
