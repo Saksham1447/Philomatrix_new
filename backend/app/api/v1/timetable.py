@@ -105,7 +105,7 @@ def get_timetable(
 @router.post("/entries", response_model=TimetableEntryResponse, status_code=status.HTTP_201_CREATED)
 def create_timetable_entry(
     request: TimetableEntryCreate,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "FACULTY")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "FACULTY", "OFFICE_STAFF")),
     db: DocStore = Depends(get_db)
 ):
     """Add a lecture slot with automatic conflict detection."""
@@ -269,7 +269,7 @@ def create_timetable_entry(
 @router.delete("/entries/{id}")
 def delete_timetable_entry(
     id: str,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
     db: DocStore = Depends(get_db)
 ):
     """Delete a timetable period."""

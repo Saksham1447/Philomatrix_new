@@ -11,7 +11,7 @@ PHILOMATRIX defines 6 distinct roles:
 3. **FACULTY (Lecturer / Subject Teacher / Class Teacher):** Academic delivery, lecture attendance, marks entry, and assignments.
 4. **STUDENT (Enrolled Junior College Student):** Personal attendance, timetables, published marks, assignments, and feedback.
 5. **PARENT (Verified Parent / Guardian):** Multi-child switching, attendance oversight, report cards, and notices for linked children.
-6. **OFFICE_STAFF (Academic & Admissions Clerk):** Student admissions, document verification, enrollment management, and non-grading clerical operations.
+6. **OFFICE_STAFF (Academic & Admissions Clerk):** Student admissions, document verification, enrollment management, timetable scheduling, and non-grading clerical operations.
 
 ---
 
@@ -34,7 +34,8 @@ PHILOMATRIX defines 6 distinct roles:
 | | `students:view_all` | ❌ | ✅ | ✅ (Assigned) | ❌ | ❌ | ✅ |
 | | `students:view_own` | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
 | | `students:link_guardian` | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
-| **Timetable** | `timetable:create_update` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **Timetable** | `timetable:create_update` | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| | `timetable:manage_slots` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | | `timetable:view_institution` | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
 | | `timetable:view_assigned` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | | `timetable:view_enrolled` | ❌ | ❌ | ❌ | ✅ | ✅ (Linked) | ❌ |

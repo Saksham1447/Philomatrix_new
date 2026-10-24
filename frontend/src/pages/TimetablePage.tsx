@@ -9,7 +9,7 @@ import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, Filter } from 'lucide
 export const TimetablePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
   const isAdminView = activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF' || activeRole === 'SUPER_ADMIN';
-  const canCreateSchedule = activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY';
+  const canCreateSchedule = activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY' || activeRole === 'OFFICE_STAFF';
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [assignments, setAssignments] = useState<Array<{ subject_id: string; subject_name: string; subject_code: string; division_id: string; division_name: string; class_name: string }>>([]);

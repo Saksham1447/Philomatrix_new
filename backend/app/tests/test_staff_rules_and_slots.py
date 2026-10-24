@@ -145,6 +145,17 @@ def test_slot_template_drives_how_faculty_build_their_timetable():
     free_slot_id = reserved.json()[0]["id"]
     assert client.delete(f"/api/v1/timetable/slots/{free_slot_id}", headers=office).status_code == 200
 
+    office_slot = {
+        "division_id": division_a["id"], "days_of_week": [3], "period_number": 3,
+        "start_time": "11:00:00", "end_time": "12:00:00",
+    }
+    assert client.post("/api/v1/timetable/slots", json=office_slot, headers=office).status_code == 201
+    office_entry = {**entry, "period_number": 3}
+    scheduled_by_office = client.post("/api/v1/timetable/entries", json=office_entry, headers=office)
+    assert scheduled_by_office.status_code == 201, scheduled_by_office.text
+    assert scheduled_by_office.json()["start_time"] == "11:00:00"
+    assert client.delete(f"/api/v1/timetable/entries/{scheduled_by_office.json()['id']}", headers=office).status_code == 200
+
 
 def test_full_name_includes_middle_name_everywhere_a_person_is_added():
     office = auth(*OFFICE)
