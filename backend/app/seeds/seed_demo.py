@@ -349,7 +349,7 @@ def run_seed(store: DocStore | None = None, isolate_institutions: bool = False) 
             },
         )
 
-    # Department/class slot templates, used by faculty to build their own timetable.
+    # Division slot templates, used by faculty to build their own timetable.
     # Only seeded when each college has its own namespace; the shared-store test seed
     # leaves classes free-form so tests can schedule arbitrary periods.
     if isolate_institutions:
@@ -361,16 +361,16 @@ def run_seed(store: DocStore | None = None, isolate_institutions: bool = False) 
             (5, time(13, 50), time(14, 50)),
             (6, time(14, 50), time(15, 50)),
         )
-        for class_record in classes.values():
+        for division in (div_11a, div_11b):
             for day in range(1, 7):
                 for period, starts, ends in slot_periods:
                     _ensure(
                         db,
                         "timetable_slots",
-                        {"class_id": class_record.id, "day_of_week": day, "period_number": period},
+                        {"division_id": division.id, "day_of_week": day, "period_number": period},
                         {
                             "institution_id": inst_a.id,
-                            "class_id": class_record.id,
+                            "division_id": division.id,
                             "day_of_week": day,
                             "period_number": period,
                             "start_time": starts,

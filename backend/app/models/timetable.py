@@ -43,11 +43,11 @@ class TimetableEntry(BaseModel):
 
 
 class TimetableSlot(BaseModel):
-    """Per department/class slot template: the periods (and optionally subject) of each weekday."""
+    """Per-division slot template: the periods (and optionally subject) of each weekday."""
     __tablename__ = "timetable_slots"
 
     institution_id = Column(String(36), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
-    class_id = Column(String(36), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    division_id = Column(String(36), ForeignKey("divisions.id", ondelete="CASCADE"), nullable=False)
     subject_id = Column(String(36), ForeignKey("subjects.id", ondelete="SET NULL"), nullable=True)
     day_of_week = Column(SmallInteger, nullable=False)  # 1 (Monday) - 6 (Saturday)
     period_number = Column(SmallInteger, nullable=False)  # 1 to 8
@@ -55,5 +55,5 @@ class TimetableSlot(BaseModel):
     end_time = Column(Time, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("class_id", "day_of_week", "period_number", name="uq_slot_class_day_period"),
+        UniqueConstraint("division_id", "day_of_week", "period_number", name="uq_slot_division_day_period"),
     )

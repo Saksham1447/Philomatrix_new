@@ -3,7 +3,7 @@ import { CalendarClock, CheckCircle2, Plus, Trash2 } from 'lucide-react';
 import { api } from '../services/api';
 import { formatIndianTime } from '../utils/time';
 
-interface AcademicClass { id: string; name: string; }
+interface AcademicClass { id: string; name: string; divisions: Array<{ id: string; name: string }>; }
 interface Subject { id: string; name: string; code: string; }
 interface Slot {
   id: string; class_id: string; day_of_week: number; period_number: number;
@@ -21,6 +21,7 @@ export const TimetableSlotsPage: React.FC = () => {
   const [classes, setClasses] = useState<AcademicClass[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [classId, setClassId] = useState('');
+  const [divisionId, setDivisionId] = useState('');
   const [slots, setSlots] = useState<Slot[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,15 +32,18 @@ export const TimetableSlotsPage: React.FC = () => {
       .then(([classList, subjectList]) => {
         setClasses(classList);
         setSubjects(subjectList);
-        if (classList.length) setClassId(classList[0].id);
+        if (classList.length) {
+          setClassId(classList[0].id);
+          setDivisionId(classList[0].divisions[0]?.id || '');
+        }
       })
       .catch((err: any) => setError(err.message || 'Could not load departments and subjects'));
   }, []);
 
   const loadSlots = async (id: string) => {
-    try { setSlots(await api.get<Slot[]>(`/timetable/slots?class_id=${id}`)); } catch (err: any) { setError(err.message || 'Could not load slots'); }
+    try { setSlots(await api.get<Slot[]>(`/timetable/slots?division_id=${id}`)); } catch (err: any) { setError(err.message || 'Could not load slots'); }
   };
-  useEffect(() => { if (classId) loadSlots(classId); }, [classId]);
+  useEffect(() => { if (divisionId) loadSlots(divisionId); else setSlots([]); }, [divisionId]);
 
   const periods = useMemo(() => {
     const byPeriod = new Map<number, Slot[]>();
@@ -56,7 +60,7 @@ export const TimetableSlotsPage: React.FC = () => {
     event.preventDefault(); setError(null); setMessage(null);
     try {
       await api.post('/timetable/slots', {
-        class_id: classId,
+        division_id: divisionId,
         days_of_week: form.days,
         period_number: form.period_number,
         start_time: form.start_time,
@@ -65,13 +69,13 @@ export const TimetableSlotsPage: React.FC = () => {
       });
       setMessage(`Period ${form.period_number} added.`);
       setForm({ ...emptyForm, period_number: Math.min(form.period_number + 1, 8) });
-      await loadSlots(classId);
+      await loadSlots(divisionId);
     } catch (err: any) { setError(err.message || 'Could not add the period'); }
   };
 
   const removeSlot = async (slot: Slot) => {
     setError(null); setMessage(null);
-    try { await api.delete(`/timetable/slots/${slot.id}`); setMessage('Slot removed.'); await loadSlots(classId); }
+    try { await api.delete(`/timetable/slots/${slot.id}`); setMessage('Slot removed.'); await loadSlots(divisionId); }
     catch (err: any) { setError(err.message || 'Could not remove the slot'); }
   };
 
@@ -79,13 +83,23 @@ export const TimetableSlotsPage: React.FC = () => {
     <div>
       <p className="mb-2 text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Timetable setup</p>
       <h1 className="flex items-center gap-2 font-display text-3xl font-semibold tracking-tight text-slate-950"><CalendarClock className="h-7 w-7 text-indigo-600" /> Time slots</h1>
-      <p className="mt-2 text-sm text-slate-500">Define the periods of each department or class, optionally reserving a subject for a slot. Divisions are then scheduled from these slots, and teachers choose from the open slots for the subjects assigned to them. Until a class has slots, its timetable stays free-form.</p>
+      <p className="mt-2 text-sm text-slate-500">Define periods for each division, optionally reserving a subject for a slot. Teachers choose from that division's open slots for the subjects assigned to them. Divisions without configured slots keep a free-form timetable.</p>
     </div>
     {message && <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />{message}</div>}
     {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
 
     <label className="block max-w-sm"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Department / class</span>
-      <select value={classId} onChange={(event) => setClassId(event.target.value)} className="premium-input w-full">{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+      <select value={classId} onChange={(event) => {
+        const nextClass = classes.find((item) => item.id === event.target.value);
+        setClassId(event.target.value);
+        setDivisionId(nextClass?.divisions[0]?.id || '');
+      }} className="premium-input w-full">{classes.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+    </label>
+
+    <label className="block max-w-sm"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Division</span>
+      <select value={divisionId} onChange={(event) => setDivisionId(event.target.value)} className="premium-input w-full" disabled={!classes.find((item) => item.id === classId)?.divisions.length}>
+        {(classes.find((item) => item.id === classId)?.divisions || []).map((item) => <option key={item.id} value={item.id}>Division {item.name}</option>)}
+      </select>
     </label>
 
     <form onSubmit={addPeriod} className="premium-card grid gap-4 p-5 sm:grid-cols-4">
@@ -98,7 +112,7 @@ export const TimetableSlotsPage: React.FC = () => {
       <div className="sm:col-span-4"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Days</span>
         <div className="flex flex-wrap gap-2">{DAYS.map((day) => <button key={day.num} type="button" onClick={() => toggleDay(day.num)} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${form.days.includes(day.num) ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 text-slate-500'}`}>{day.name}</button>)}</div>
       </div>
-      <div className="sm:col-span-4"><button disabled={!classId || form.days.length === 0} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Add period</button></div>
+      <div className="sm:col-span-4"><button disabled={!divisionId || form.days.length === 0} className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Add period</button></div>
     </form>
 
     <div className="premium-card overflow-x-auto">

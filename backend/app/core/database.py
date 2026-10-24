@@ -90,6 +90,28 @@ def ensure_indexes(store: DocStore) -> None:
                     if physical_name not in store._database.list_collection_names():
                         raise
             collection = store._database[physical_name]
+            if name == "timetable_slots":
+                legacy_indexes = collection.index_information()
+                if "uq_slot_class_day_period" in legacy_indexes:
+                    collection.drop_index("uq_slot_class_day_period")
+                for slot in store.find("timetable_slots", {"division_id": {"$exists": False}}):
+                    if not slot.get("class_id"):
+                        continue
+                    divisions = store.find("divisions", {"class_id": slot.class_id})
+                    if not divisions:
+                        continue
+                    store.update(slot, {"division_id": divisions[0].id})
+                    collection.update_one({"_id": slot.id}, {"$unset": {"class_id": ""}})
+                    for division in divisions[1:]:
+                        store.insert("timetable_slots", {
+                            "institution_id": slot.institution_id,
+                            "division_id": division.id,
+                            "subject_id": slot.subject_id,
+                            "day_of_week": slot.day_of_week,
+                            "period_number": slot.period_number,
+                            "start_time": slot.start_time,
+                            "end_time": slot.end_time,
+                        })
             for index in spec.indexes:
                 keys = [(key, ASCENDING) for key in index.fields]
                 options = {"unique": index.unique, "name": index.name}

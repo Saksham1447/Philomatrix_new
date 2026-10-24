@@ -155,15 +155,15 @@ def create_timetable_entry(
     # When the department/class has a slot template, only its slots (with its times and
     # reserved subject) can be scheduled; classes without a template keep free scheduling.
     start_time, end_time = request.start_time, request.end_time
-    if db.count("timetable_slots", {"class_id": division.class_id}):
+    if db.count("timetable_slots", {"division_id": request.division_id}):
         template_slot = db.find_one(
             "timetable_slots",
-            {"class_id": division.class_id, "day_of_week": request.day_of_week, "period_number": request.period_number},
+            {"division_id": request.division_id, "day_of_week": request.day_of_week, "period_number": request.period_number},
         )
         if not template_slot:
             raise HTTPException(
                 status_code=400,
-                detail="No slot is defined for this department/class on that day and period",
+                detail="No slot is defined for this division on that day and period",
             )
         if template_slot.subject_id and template_slot.subject_id != request.subject_id:
             reserved = db.get("subjects", template_slot.subject_id)
@@ -297,15 +297,19 @@ def _require_institution(current_user: UserDoc) -> str:
 
 
 def _slot_responses(db: DocStore, slots) -> List[TimetableSlotResponse]:
-    classes = db.get_many("classes", ids(slots, "class_id"))
+    divisions = db.get_many("divisions", ids(slots, "division_id"))
+    classes = db.get_many("classes", ids(divisions.values(), "class_id"))
     subjects = db.get_many("subjects", ids(slots, "subject_id"))
     results = []
     for slot in slots:
+        division = divisions[slot.division_id]
         subject = subjects.get(slot.subject_id) if slot.subject_id else None
         results.append(TimetableSlotResponse(
             id=slot.id,
-            class_id=slot.class_id,
-            class_name=classes[slot.class_id].name,
+            class_id=division.class_id,
+            class_name=classes[division.class_id].name,
+            division_id=division.id,
+            division_name=division.name,
             day_of_week=slot.day_of_week,
             period_number=slot.period_number,
             start_time=slot.start_time,
@@ -322,12 +326,12 @@ def _check_slot_times(start, end) -> None:
         raise HTTPException(status_code=400, detail="Slot end time must be after its start time")
 
 
-def _check_no_overlap(db: DocStore, class_id: str, day: int, start, end, ignore_id: Optional[str] = None) -> None:
-    for other in db.find("timetable_slots", {"class_id": class_id, "day_of_week": day}):
+def _check_no_overlap(db: DocStore, division_id: str, day: int, start, end, ignore_id: Optional[str] = None) -> None:
+    for other in db.find("timetable_slots", {"division_id": division_id, "day_of_week": day}):
         if other.id != ignore_id and start < other.end_time and other.start_time < end:
             raise HTTPException(
                 status_code=409,
-                detail=f"Time overlaps period {other.period_number} on day {day} for this department/class",
+                detail=f"Time overlaps period {other.period_number} on day {day} for this division",
             )
 
 
@@ -337,11 +341,8 @@ def _check_subject(db: DocStore, subject_id: Optional[str], institution_id: str)
 
 
 def _slot_entries(db: DocStore, slot) -> list:
-    divisions = db.find("divisions", {"class_id": slot.class_id})
-    if not divisions:
-        return []
     return db.find("timetable_entries", {
-        "division_id": {"$in": ids(divisions, "id")},
+        "division_id": slot.division_id,
         "day_of_week": slot.day_of_week,
         "period_number": slot.period_number,
     })
@@ -360,9 +361,10 @@ def list_slots(
         division = db.find_one("divisions", {"id": division_id, "institution_id": current_user.institution_id})
         if not division:
             raise HTTPException(status_code=404, detail="Division not found")
-        class_id = division.class_id
-    if class_id:
-        query["class_id"] = class_id
+        query["division_id"] = division_id
+    elif class_id:
+        divisions = db.find("divisions", {"class_id": class_id, "institution_id": current_user.institution_id})
+        query["division_id"] = {"$in": ids(divisions, "id")}
     slots = db.find("timetable_slots", query, sort=[("day_of_week", 1), ("period_number", 1)])
     return _slot_responses(db, slots)
 
@@ -375,8 +377,9 @@ def create_slots(
 ):
     """Define one period of a department/class for the chosen weekdays."""
     institution_id = _require_institution(current_user)
-    if not db.find_one("classes", {"id": request.class_id, "institution_id": institution_id}):
-        raise HTTPException(status_code=404, detail="Department/class not found")
+    division = db.find_one("divisions", {"id": request.division_id, "institution_id": institution_id})
+    if not division:
+        raise HTTPException(status_code=404, detail="Division not found")
     days = sorted(set(request.days_of_week))
     if not days or any(day < 1 or day > 6 for day in days):
         raise HTTPException(status_code=400, detail="Choose weekdays between 1 (Monday) and 6 (Saturday)")
@@ -386,16 +389,16 @@ def create_slots(
     _check_subject(db, request.subject_id, institution_id)
 
     for day in days:
-        if db.find_one("timetable_slots", {"class_id": request.class_id, "day_of_week": day, "period_number": request.period_number}):
+        if db.find_one("timetable_slots", {"division_id": request.division_id, "day_of_week": day, "period_number": request.period_number}):
             raise HTTPException(status_code=409, detail=f"Period {request.period_number} already exists on day {day}")
-        _check_no_overlap(db, request.class_id, day, request.start_time, request.end_time)
+        _check_no_overlap(db, request.division_id, day, request.start_time, request.end_time)
 
     try:
         with db.transaction():
             created = [
                 db.insert("timetable_slots", {
                     "institution_id": institution_id,
-                    "class_id": request.class_id,
+                    "division_id": request.division_id,
                     "subject_id": request.subject_id,
                     "day_of_week": day,
                     "period_number": request.period_number,
@@ -430,7 +433,7 @@ def update_slot(
     if "end_time" in request.model_fields_set and request.end_time:
         changes["end_time"] = request.end_time
     if "start_time" in changes or "end_time" in changes:
-        _check_no_overlap(db, slot.class_id, slot.day_of_week, start, end, ignore_id=slot.id)
+        _check_no_overlap(db, slot.division_id, slot.day_of_week, start, end, ignore_id=slot.id)
     entries = _slot_entries(db, slot)
     if "subject_id" in request.model_fields_set:
         _check_subject(db, request.subject_id, institution_id)
@@ -498,7 +501,7 @@ def list_available_slots(
     taken_subjects = db.get_many("subjects", ids(division_entries.values(), "subject_id"))
 
     results = []
-    slots = db.find("timetable_slots", {"class_id": division.class_id}, sort=[("day_of_week", 1), ("period_number", 1)])
+    slots = db.find("timetable_slots", {"division_id": division_id}, sort=[("day_of_week", 1), ("period_number", 1)])
     for slot in slots:
         key = (slot.day_of_week, slot.period_number)
         taken = division_entries.get(key)

@@ -85,7 +85,7 @@ def test_slot_template_drives_how_faculty_build_their_timetable():
     subjects = {item["code"]: item["id"] for item in client.get("/api/v1/academics/subjects", headers=principal).json()}
 
     # Faculty cannot define slots; principals and office staff can, for several days at once.
-    slot = {"class_id": class_11["id"], "days_of_week": [3], "period_number": 1, "start_time": "09:00:00", "end_time": "10:00:00"}
+    slot = {"division_id": division_a["id"], "days_of_week": [3], "period_number": 1, "start_time": "09:00:00", "end_time": "10:00:00"}
     assert client.post("/api/v1/timetable/slots", json=slot, headers=faculty).status_code == 403
     created = client.post("/api/v1/timetable/slots", json=slot, headers=office)
     assert created.status_code == 201, created.text
@@ -234,8 +234,14 @@ def test_each_division_of_a_class_has_its_own_timetable():
     chem_faculty = client.get("/api/v1/auth/me", headers=chem_teacher).json()["faculty_id"]
     physics_faculty = client.get("/api/v1/auth/me", headers=physics_teacher).json()["faculty_id"]
 
-    slot = {"class_id": class_11["id"], "days_of_week": [5], "period_number": 1, "start_time": "09:00:00", "end_time": "10:00:00"}
-    assert client.post("/api/v1/timetable/slots", json=slot, headers=principal).status_code == 201
+    slot_a = {"division_id": division_a["id"], "days_of_week": [5], "period_number": 1, "start_time": "09:00:00", "end_time": "10:00:00"}
+    slot_b = {"division_id": division_b["id"], "days_of_week": [5], "period_number": 1, "start_time": "10:00:00", "end_time": "11:00:00"}
+    assert client.post("/api/v1/timetable/slots", json=slot_a, headers=principal).status_code == 201
+    assert client.post("/api/v1/timetable/slots", json=slot_b, headers=principal).status_code == 201
+    slots_a = client.get(f"/api/v1/timetable/slots?division_id={division_a['id']}", headers=principal).json()
+    slots_b = client.get(f"/api/v1/timetable/slots?division_id={division_b['id']}", headers=principal).json()
+    assert slots_a[0]["start_time"] == "09:00:00"
+    assert slots_b[0]["start_time"] == "10:00:00"
     assigned = client.post(
         "/api/v1/faculty/assignments",
         json={"academic_year_id": year["id"], "faculty_id": chem_faculty, "subject_id": subjects["CHEM-101"], "division_id": division_b["id"]},
@@ -252,8 +258,12 @@ def test_each_division_of_a_class_has_its_own_timetable():
     assert client.post("/api/v1/timetable/entries", json=entry(division_a, "PHY-101", physics_faculty), headers=physics_teacher).status_code == 201
     # The same slot is still open for division B, which gets a different subject and teacher.
     open_for_b = client.get(f"/api/v1/timetable/available-slots?division_id={division_b['id']}", headers=chem_teacher).json()
-    assert next(i for i in open_for_b if (i["day_of_week"], i["period_number"]) == (5, 1))["status"] == "OPEN"
-    assert client.post("/api/v1/timetable/entries", json=entry(division_b, "CHEM-101", chem_faculty), headers=chem_teacher).status_code == 201
+    open_slot_b = next(i for i in open_for_b if (i["day_of_week"], i["period_number"]) == (5, 1))
+    assert open_slot_b["status"] == "OPEN"
+    assert open_slot_b["start_time"] == "10:00:00"
+    created_b = client.post("/api/v1/timetable/entries", json=entry(division_b, "CHEM-101", chem_faculty), headers=chem_teacher)
+    assert created_b.status_code == 201, created_b.text
+    assert created_b.json()["start_time"] == "10:00:00"
 
     def at_friday_first_period(division):
         rows = client.get(f"/api/v1/timetable?division_id={division['id']}", headers=principal).json()

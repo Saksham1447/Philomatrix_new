@@ -40,7 +40,7 @@ class TimetableEntryResponse(BaseModel):
 
 
 class TimetableSlotCreate(BaseModel):
-    class_id: str
+    division_id: str
     days_of_week: List[int]  # 1 to 6 (Mon to Sat); one slot is created per day
     period_number: int  # 1 to 8
     start_time: time
@@ -58,6 +58,8 @@ class TimetableSlotResponse(BaseModel):
     id: str
     class_id: str
     class_name: str
+    division_id: str
+    division_name: str
     day_of_week: int
     period_number: int
     start_time: time
