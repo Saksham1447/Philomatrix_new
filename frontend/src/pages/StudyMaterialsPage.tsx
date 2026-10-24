@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
+import { BASE_URL } from '../services/api';
 import {
   FolderOpen,
   FileText,
@@ -66,7 +67,7 @@ export const StudyMaterialsPage: React.FC = () => {
   const { data: materials = [], isLoading } = useQuery<StudyMaterial[]>({
     queryKey: ['study-materials', selectedSubject],
     queryFn: async () => {
-      let url = '/api/v1/study-materials';
+      let url = `${BASE_URL}/study-materials`;
       if (selectedSubject !== 'ALL') {
         url += `?subject_id=${selectedSubject}`;
       }
@@ -83,7 +84,7 @@ export const StudyMaterialsPage: React.FC = () => {
   const { data: divisions = [] } = useQuery<{ id: string; name: string; class_id: string }[]>({
     queryKey: ['academics-divisions'],
     queryFn: async () => {
-      const res = await fetch('/api/v1/academics/divisions', {
+      const res = await fetch(`${BASE_URL}/academics/divisions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) return [];
@@ -95,7 +96,7 @@ export const StudyMaterialsPage: React.FC = () => {
   const { data: subjects = [] } = useQuery<{ id: string; name: string; code: string }[]>({
     queryKey: ['academics-subjects'],
     queryFn: async () => {
-      const res = await fetch('/api/v1/academics/subjects', {
+      const res = await fetch(`${BASE_URL}/academics/subjects`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) return [];
@@ -135,7 +136,7 @@ export const StudyMaterialsPage: React.FC = () => {
       formData.append('subject_id', subjectId);
       formData.append('is_published', String(isPublished));
 
-      const res = await fetch('/api/v1/study-materials/upload', {
+      const res = await fetch(`${BASE_URL}/study-materials/upload`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData
@@ -163,7 +164,7 @@ export const StudyMaterialsPage: React.FC = () => {
   // 4. Handle secure file download
   const handleDownload = async (materialId: string, fileName: string) => {
     try {
-      const res = await fetch(`/api/v1/study-materials/${materialId}/download`, {
+      const res = await fetch(`${BASE_URL}/study-materials/${materialId}/download`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!res.ok) {
@@ -191,7 +192,7 @@ export const StudyMaterialsPage: React.FC = () => {
       return;
     }
     try {
-      const res = await fetch(`/api/v1/study-materials/${materialId}`, {
+      const res = await fetch(`${BASE_URL}/study-materials/${materialId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });

@@ -36,7 +36,7 @@
 
 ### Tenant database model
 
-The control database stores platform records and the institute directory. When a Super Admin provisions a new institute from **Institute Workspaces**, PHILOMATRIX creates an isolated MongoDB database for that institution and bootstraps its principal account and roles there. Login requires selecting an active institute first; subsequent API requests carry the selected institution context and are routed to that tenant database. The Mongo collections retain the names of the former relational tables, and references retain their existing string IDs.
+The `philomatrix` database stores platform records and the institute directory. When a Super Admin provisions a new institute from **Institute Workspaces**, PHILOMATRIX creates isolated, college-prefixed collections for that institution and bootstraps its principal account and roles there. Login requires selecting an active institute first; subsequent API requests carry the selected institution context and are routed to that college namespace. The logical Mongo collections retain the names of the former relational tables, and references retain their existing string IDs.
 
 ### MongoDB Atlas configuration and legacy data migration
 
@@ -54,7 +54,7 @@ After reviewing source counts and confirming the legacy source (including any in
 python migrate_to_mongodb.py --apply
 ```
 
-The default run is read-only. `--apply` preserves record IDs and refuses to overwrite a conflicting MongoDB document. The utility copies known application tables to same-named collections, moves tenant databases to isolated Atlas databases, and verifies each source collection's records. It does not delete or modify the legacy database. Back up both systems before migration.
+The default run is read-only. `--apply` preserves record IDs and refuses to overwrite a conflicting MongoDB document. The utility copies platform tables to the main database and tenant tables to college-prefixed collections, then verifies each source collection's records. It does not delete or modify the legacy database. Back up both systems before migration.
 
 Each institute can select its type (School, Junior College, Degree College, Engineering College, or Other) and configure neutral labels such as **Academic unit**, **Educator**, **Learner**, and **Head role** from Settings. Academic units accept any name or category, including `Class 5`, `Class 11 Science`, `Computer Engineering`, `B.Sc. Physics`, or a custom course structure.
 

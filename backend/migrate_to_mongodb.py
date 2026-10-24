@@ -161,7 +161,11 @@ def _document_for_target(
 
 def _preflight(plans: list[SourcePlan], tenant_targets: dict[str, str], control_target: str, client) -> None:
     for plan in plans:
-        store = DocStore(client[plan.target_name], client=client)
+        store = DocStore(
+            client[control_target],
+            client=client,
+            collection_prefix=None if not plan.tenant_id else plan.target_name,
+        )
         ensure_indexes(store)
         tables = _tables_in_plan(plan)
         for collection, table in tables.items():
@@ -179,9 +183,19 @@ def _preflight(plans: list[SourcePlan], tenant_targets: dict[str, str], control_
                         )
 
 
-def _copy(plans: list[SourcePlan], tenant_targets: dict[str, str], client) -> None:
+def _copy(
+    plans: list[SourcePlan],
+    tenant_targets: dict[str, str],
+    client,
+    control_target: str | None = None,
+) -> None:
+    control_target = control_target or plans[0].target_name
     for plan in plans:
-        store = DocStore(client[plan.target_name], client=client)
+        store = DocStore(
+            client[control_target],
+            client=client,
+            collection_prefix=None if not plan.tenant_id else plan.target_name,
+        )
         ensure_indexes(store)
         tables = _tables_in_plan(plan)
         for collection, table in tables.items():
@@ -234,7 +248,7 @@ def main() -> int:
     prefix = settings.MONGODB_DB_PREFIX
     if not prefix or len(prefix) > 30:
         parser.error("MONGODB_DB_PREFIX must contain 1-30 characters")
-    control_target = f"{prefix}_control"
+    control_target = prefix
 
     plans: list[SourcePlan] = []
     try:
@@ -260,7 +274,7 @@ def main() -> int:
         try:
             client.admin.command("ping")
             _preflight(plans, tenant_targets, control_target, client)
-            _copy(plans, tenant_targets, client)
+            _copy(plans, tenant_targets, client, control_target)
         finally:
             client.close()
     except Exception as exc:

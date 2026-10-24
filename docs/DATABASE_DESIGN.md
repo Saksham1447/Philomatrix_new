@@ -9,16 +9,17 @@ by MongoDB indexes, and reference validation plus configured delete cascades are
 handled by the application. Decimal, date, time, and JSON values are converted
 through the shared document codec.
 
-The control database is named `<prefix>_control` (default `philomatrix_control`). It
-holds only the platform-level data: the institution registry, platform roles and
-super-admin accounts. Each college has its own database named after the college
-(for example `Chate_Junior_College_Science_Kolhapur`), which holds all of that
-college's data (users, students, faculty, academics, attendance, exams, notices, ...).
-MongoDB databases cannot be nested, so college databases appear beside the control
-database in Atlas. Atlas limits database names to 38 characters, so filler words
-("of", "the", ...) are dropped and, only if the name is still too long or already
-taken, a short id-based suffix is added. The registry entry's `database_url` field
-stores that database name, never a connection URI.
+The main database is named `<prefix>` (default `philomatrix`). It holds the
+platform-level collections plus college-isolated collections. Platform records
+such as the institution registry, platform roles, and super-admin accounts use
+the unprefixed logical collection names. Each college uses physical collections
+prefixed with its normalized college name, for example
+`Chate_Junior_College_Science_Kolhapur__users` and
+`Chate_Junior_College_Science_Kolhapur__students`. The route-facing logical
+names remain `users`, `students`, and so on, so application features and API
+contracts do not change. The registry entry's `database_url` field stores the
+college collection namespace for backward compatibility; it is not a connection
+URI or a database name.
 Application writes use MongoDB transactions on Atlas replica sets.
 
 ---

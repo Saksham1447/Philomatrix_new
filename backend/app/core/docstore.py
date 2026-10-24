@@ -198,10 +198,11 @@ def _index_name(error: Exception) -> str:
 class DocStore:
     """Per-request handle for a single Mongo database; route API defined by t1."""
 
-    def __init__(self, database, *, client=None):
+    def __init__(self, database, *, client=None, collection_prefix: str | None = None):
         self._database = database
         self._client = client or getattr(database, "client", None)
         self.name = database.name
+        self.collection_prefix = collection_prefix
         self._session = None
         self._request_scope = False
 
@@ -213,7 +214,11 @@ class DocStore:
 
     def _collection(self, coll: str):
         self._spec(coll)
-        return self._database[coll]
+        return self._database[self.physical_collection_name(coll)]
+
+    def physical_collection_name(self, coll: str) -> str:
+        self._spec(coll)
+        return f"{self.collection_prefix}__{coll}" if self.collection_prefix else coll
 
     def _session_kw(self, *, write: bool = False) -> dict[str, Any]:
         if write and self._request_scope and self._session is None:

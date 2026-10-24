@@ -85,7 +85,7 @@ def run_seed(store: DocStore | None = None, isolate_institutions: bool = False) 
     assign_role(named_admin, "SUPER_ADMIN")
 
     # Demo institutions are registered in the control store. With isolate_institutions,
-    # each college's data lives in its own database; otherwise (tests) one store is used.
+    # each college's data lives in its own collection namespace; otherwise (tests) one store is used.
     control = db
 
     def use_store(target: DocStore) -> None:
@@ -350,7 +350,7 @@ def run_seed(store: DocStore | None = None, isolate_institutions: bool = False) 
         )
 
     # Department/class slot templates, used by faculty to build their own timetable.
-    # Only seeded when each college has its own database; the shared-store test seed
+    # Only seeded when each college has its own namespace; the shared-store test seed
     # leaves classes free-form so tests can schedule arbitrary periods.
     if isolate_institutions:
         slot_periods = (

@@ -291,7 +291,7 @@ def test_institute_database_is_named_after_the_college():
     assert _safe_tenant_db_name({"id": "inst-3", "name": "Admin"}) != "Admin"
 
 
-def test_provisioned_institutes_get_their_own_college_named_database(store):
+def test_provisioned_institutes_get_college_prefixed_collections_in_main_database(store):
     from app.core.database import provision_tenant_database, get_tenant_store
 
     first = store.insert("institutions", {
@@ -305,8 +305,13 @@ def test_provisioned_institutes_get_their_own_college_named_database(store):
 
     assert first_db == "Chate_Junior_College_Science_Kolhapur"
     assert second_db != first_db
-    assert get_tenant_store(first_db).count("users") == 1
-    assert get_tenant_store(first_db).count("institutions") == 1
-    assert get_tenant_store(first_db).count("subjects") == 10
-    assert get_tenant_store(second_db).count("users") == 0
+    first_store = get_tenant_store(first_db)
+    second_store = get_tenant_store(second_db)
+    assert first_store.name == store.name == "philomatrix"
+    assert first_store.physical_collection_name("users") == f"{first_db}__users"
+    assert second_store.physical_collection_name("users") == f"{second_db}__users"
+    assert first_store.count("users") == 1
+    assert first_store.count("institutions") == 1
+    assert first_store.count("subjects") == 10
+    assert second_store.count("users") == 0
     assert store.count("users") == 0

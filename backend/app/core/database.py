@@ -16,10 +16,9 @@ from app.core.docstore import DocStore
 from app.core.mongo import get_mongo_client
 from app.core.schema import COLLECTIONS
 
-CONTROL_SUFFIX = "_control"
 _ATLAS_DB_NAME_LIMIT = 38
-_tenant_stores: dict[str, DocStore] = {}
-_indexed_databases: set[str] = set()
+_tenant_stores: dict[tuple[str, str | None], DocStore] = {}
+_indexed_databases: set[tuple[str, str | None]] = set()
 _institution_db_cache: dict[str, tuple[str | None, float]] = {}
 _cache_lock = RLock()
 
@@ -49,52 +48,55 @@ def _validate_database_name(name: str) -> str:
     return name
 
 
-def _store_for_name(name: str) -> DocStore:
+def _store_for_name(name: str, collection_prefix: str | None = None) -> DocStore:
     name = _validate_database_name(name)
+    cache_key = (name, collection_prefix)
     with _cache_lock:
-        store = _tenant_stores.get(name)
+        store = _tenant_stores.get(cache_key)
         if store is None:
             client = get_mongo_client()
-            store = DocStore(client[name], client=client)
-            _tenant_stores[name] = store
-    if name not in _indexed_databases:
+            store = DocStore(client[name], client=client, collection_prefix=collection_prefix)
+            _tenant_stores[cache_key] = store
+    if cache_key not in _indexed_databases:
         ensure_indexes(store)
-    return DocStore(store._database, client=store._client)
+    return DocStore(store._database, client=store._client, collection_prefix=collection_prefix)
 
 
 def get_control_store() -> DocStore:
-    return _store_for_name(f"{_prefix()}{CONTROL_SUFFIX}")
+    return _store_for_name(_prefix())
 
 
 def get_tenant_store(name: str | None) -> DocStore:
-    """Return a tenant store by database name; a missing name uses the control store."""
+    """Return a college-prefixed store in the shared Mongo database."""
     if not name:
         return get_control_store()
-    return _store_for_name(name)
+    return _store_for_name(_prefix(), name)
 
 
 def ensure_indexes(store: DocStore) -> None:
     """Create all 39 same-named collections and declared indexes idempotently."""
     with _cache_lock:
-        if store.name in _indexed_databases:
+        key = (store.name, store.collection_prefix)
+        if key in _indexed_databases:
             return
         existing = set(store._database.list_collection_names())
         for name, spec in COLLECTIONS.items():
-            if name not in existing:
+            physical_name = store.physical_collection_name(name)
+            if physical_name not in existing:
                 try:
-                    store._database.create_collection(name)
+                    store._database.create_collection(physical_name)
                 except CollectionInvalid:
                     # Another worker may have won the create race.
-                    if name not in store._database.list_collection_names():
+                    if physical_name not in store._database.list_collection_names():
                         raise
-            collection = store._database[name]
+            collection = store._database[physical_name]
             for index in spec.indexes:
                 keys = [(key, ASCENDING) for key in index.fields]
                 options = {"unique": index.unique, "name": index.name}
                 if index.partial_filter is not None:
                     options["partialFilterExpression"] = index.partial_filter
                 collection.create_index(keys, **options)
-        _indexed_databases.add(store.name)
+        _indexed_databases.add(key)
 
 
 _NAME_FILLER_WORDS = {"of", "the", "and", "for", "at", "in"}
@@ -113,7 +115,7 @@ def _safe_tenant_db_name(institution, *, force_suffix: bool = False) -> str:
     base = "_".join(words)
     if len(base) > _ATLAS_DB_NAME_LIMIT:
         base = "_".join(word for word in words if word.lower() not in _NAME_FILLER_WORDS)
-    control = f"{_prefix()}{CONTROL_SUFFIX}".lower()
+    control = _prefix().lower()
     needs_suffix = (
         force_suffix
         or not base
@@ -145,17 +147,15 @@ def provision_tenant_database(institution, principal_email: str | None = None,
                               principal_first_name: str = "Institution",
                               principal_middle_name: str | None = None,
                               principal_last_name: str = "Principal") -> str:
-    """Create and bootstrap a clean isolated database with compensating cleanup on failure."""
+    """Create and bootstrap an isolated college namespace in the shared database."""
     name = _safe_tenant_db_name(institution)
     client = get_mongo_client()
-    # Another college may already use this name (MongoDB also treats names differing only by case as clashes).
-    if any(existing.lower() == name.lower() for existing in client.list_database_names()):
+    shared_db = client[_prefix()]
+    if any(collection.startswith(f"{name}__") for collection in shared_db.list_collection_names()):
         name = _safe_tenant_db_name(institution, force_suffix=True)
-    if client[name].list_collection_names():
-        raise ValueError("Tenant database already contains collections; refusing to overwrite it")
     clear_cached_institution(_read(institution, "id", ""))
     try:
-        store = _store_for_name(name)
+        store = get_tenant_store(name)
         store.insert("institutions", _institution_data(institution, name))
         store.insert("institution_settings", {
             "institution_id": str(_read(institution, "id")),
@@ -187,10 +187,12 @@ def provision_tenant_database(institution, principal_email: str | None = None,
             })
         return name
     except Exception:
-        client.drop_database(name)
+        for collection in shared_db.list_collection_names():
+            if collection.startswith(f"{name}__"):
+                shared_db.drop_collection(collection)
         with _cache_lock:
-            _tenant_stores.pop(name, None)
-            _indexed_databases.discard(name)
+            _tenant_stores.pop((_prefix(), name), None)
+            _indexed_databases.discard((_prefix(), name))
         raise
 
 

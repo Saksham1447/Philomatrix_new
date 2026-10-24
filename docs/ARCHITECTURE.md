@@ -19,7 +19,7 @@ PHILOMATRIX SOFTWARE is an enterprise-grade, multi-institution Junior College Ed
 3. **Decoupled Three-Tier Architecture:** 
    - **Frontend:** Modern Single Page Application (SPA) built with React 19, TypeScript (strict mode), Vite, Tailwind CSS, TanStack Query for caching and server state, React Hook Form + Zod for runtime schema validation.
    - **Backend:** REST API using Python 3.12, FastAPI, Pydantic v2 schemas, and PyMongo.
-   - **Database:** MongoDB Atlas, with a control database and a separate database per institution.
+   - **Database:** MongoDB Atlas, with one `philomatrix` database and college-prefixed collections for tenant isolation.
 4. **Defense-in-Depth Security:** Short-lived JWT access tokens + secure refresh tokens, Argon2id/bcrypt password hashing, server-side RBAC, rate-limiting on sensitive endpoints, secure file storage with signed streaming, and input sanitization.
 
 ---
@@ -101,7 +101,7 @@ graph TD
 ## 4. TENANT ISOLATION MODEL
 
 Multi-tenancy uses **database-per-institution isolation**:
-1. The control database stores the institution directory and platform-level records. Each provisioned institution has a separate Atlas database.
+1. The `philomatrix` database stores the institution directory and platform-level records. Each provisioned institution has isolated college-prefixed collections in that same database.
 2. Requests select the tenant using `X-Institution-ID`; the backend resolves its database name from the control database and validates that name before routing.
 3. Tenant documents retain the existing `institution_id` reference fields and use indexed filters for institution-scoped operations.
 4. The authenticated user's token carries their verified `institution_id` and assigned roles. Cross-institution access remains restricted by server-side authorization.
