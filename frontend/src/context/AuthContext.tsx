@@ -81,8 +81,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleUnauthorized = () => {
       logout();
     };
+    const handleProfileUpdated = () => {
+      fetchProfileAndChildren();
+    };
     window.addEventListener('auth:unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('profile:updated', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('profile:updated', handleProfileUpdated);
+    };
   }, []);
 
   const login = (newToken: string, newProfile: UserProfile) => {

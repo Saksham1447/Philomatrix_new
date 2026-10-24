@@ -9,6 +9,7 @@ export interface UserProfile {
   last_name: string;
   full_name: string;
   phone_number?: string;
+  profile_photo_url?: string | null;
   institution_id?: string;
   institution_name?: string;
   roles: UserRole[];
@@ -16,6 +17,21 @@ export interface UserProfile {
   student_id?: string;
   faculty_id?: string;
   guardian_id?: string;
+}
+
+export interface Faculty {
+  id: string;
+  user_id: string;
+  employee_id: string;
+  first_name: string;
+  middle_name?: string | null;
+  last_name: string;
+  full_name: string;
+  email: string;
+  phone_number?: string;
+  designation: string;
+  department: string;
+  qualification?: string | null;
 }
 
 export interface AuthTokens {

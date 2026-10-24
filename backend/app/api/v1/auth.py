@@ -14,6 +14,7 @@ from app.core.security import (
 )
 from app.schemas.auth import (
     LoginRequest,
+    ProfileUpdateRequest,
     PasswordChangeRequest,
     RefreshRequest,
     Token,
@@ -117,6 +118,7 @@ def get_me(current_user: UserDoc = Depends(get_current_user), db: DocStore = Dep
         last_name=current_user.last_name,
         full_name=current_user.full_name,
         phone_number=current_user.phone_number,
+        profile_photo_url=getattr(current_user, "profile_photo_url", None),
         institution_id=current_user.institution_id,
         institution_name=institution_name,
         roles=current_user.role_names,
@@ -124,6 +126,52 @@ def get_me(current_user: UserDoc = Depends(get_current_user), db: DocStore = Dep
         student_id=current_user.student_profile.id if current_user.student_profile else None,
         faculty_id=current_user.faculty_profile.id if current_user.faculty_profile else None,
         guardian_id=current_user.guardian_profile.id if current_user.guardian_profile else None,
+    )
+
+
+@router.put("/profile", response_model=UserProfileResponse)
+def update_profile(
+    request: ProfileUpdateRequest,
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db),
+):
+    """Update the signed-in user's personal details and profile photo."""
+    email = request.email.strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    duplicate = db.find_one("users", {"email": email})
+    if duplicate and duplicate.id != current_user.id:
+        raise HTTPException(status_code=409, detail="Email is already in use")
+    updated = db.update(current_user, {
+        "first_name": request.first_name.strip(),
+        "middle_name": request.middle_name.strip() if request.middle_name else None,
+        "last_name": request.last_name.strip(),
+        "email": email,
+        "username": email,
+        "phone_number": request.phone_number.strip() if request.phone_number else None,
+        "profile_photo_url": request.profile_photo_url,
+    })
+    institution_name = None
+    if updated.institution_id:
+        institution = db.get("institutions", updated.institution_id)
+        institution_name = institution.name if institution else None
+    return UserProfileResponse(
+        id=updated.id,
+        username=updated.username,
+        email=updated.email,
+        first_name=updated.first_name,
+        middle_name=updated.middle_name,
+        last_name=updated.last_name,
+        full_name=updated.full_name,
+        phone_number=updated.phone_number,
+        profile_photo_url=getattr(updated, "profile_photo_url", None),
+        institution_id=updated.institution_id,
+        institution_name=institution_name,
+        roles=updated.role_names,
+        is_active=updated.is_active,
+        student_id=updated.student_profile.id if updated.student_profile else None,
+        faculty_id=updated.faculty_profile.id if updated.faculty_profile else None,
+        guardian_id=updated.guardian_profile.id if updated.guardian_profile else None,
     )
 
 

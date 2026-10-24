@@ -29,6 +29,7 @@ class UserProfileResponse(BaseModel):
     last_name: str
     full_name: str
     phone_number: Optional[str] = None
+    profile_photo_url: Optional[str] = None
     institution_id: Optional[str] = None
     institution_name: Optional[str] = None
     roles: List[str]
@@ -39,6 +40,15 @@ class UserProfileResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ProfileUpdateRequest(BaseModel):
+    first_name: str
+    middle_name: Optional[str] = None
+    last_name: str
+    email: str
+    phone_number: Optional[str] = None
+    profile_photo_url: Optional[str] = None
 
 
 class PasswordChangeRequest(BaseModel):

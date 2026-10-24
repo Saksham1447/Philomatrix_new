@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { TimetableEntry } from '../types';
+import { ClassModel, Faculty, Subject, TimetableEntry } from '../types';
 import { formatIndianTime } from '../utils/time';
 import { FacultySlotPicker } from '../components/common/FacultySlotPicker';
 import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, Filter } from 'lucide-react';
@@ -14,11 +14,16 @@ export const TimetablePage: React.FC = () => {
   const [assignments, setAssignments] = useState<Array<{ subject_id: string; subject_name: string; subject_code: string; division_id: string; division_name: string; class_name: string }>>([]);
   const [selectedSlot, setSelectedSlot] = useState<{ day: number; period: number } | null>(null);
   const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [selectedSubjectId, setSelectedSubjectId] = useState('');
+  const [selectedFacultyId, setSelectedFacultyId] = useState('');
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [faculty, setFaculty] = useState<Faculty[]>([]);
+  const [facultyEntries, setFacultyEntries] = useState<TimetableEntry[]>([]);
   const [roomNumber, setRoomNumber] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Every division of a class has its own timetable; administrators pick which one to view.
-  const [classes, setClasses] = useState<Array<{ id: string; name: string; divisions: Array<{ id: string; name: string }> }>>([]);
+  const [classes, setClasses] = useState<ClassModel[]>([]);
   const [selectedClassId, setSelectedClassId] = useState('');
   const [selectedDivisionId, setSelectedDivisionId] = useState('');
   const [slotTimes, setSlotTimes] = useState<Record<number, [string, string]>>({});
@@ -46,15 +51,31 @@ export const TimetablePage: React.FC = () => {
 
   useEffect(() => {
     if (!isAdminView) return;
-    api.get<typeof classes>('/academics/classes').then((items) => {
+    Promise.all([
+      api.get<ClassModel[]>('/academics/classes'),
+      api.get<Subject[]>('/academics/subjects'),
+      api.get<Faculty[]>('/faculty'),
+    ]).then(([items, subjectList, facultyList]) => {
       setClasses(items);
+      setSubjects(subjectList);
+      setFaculty(facultyList);
       const first = items.find((item) => item.divisions.length) || items[0];
       if (first) {
         setSelectedClassId(first.id);
         setSelectedDivisionId(first.divisions[0]?.id || '');
       }
-    }).catch((err) => console.error('Failed to load classes', err));
+    }).catch((err) => console.error('Failed to load timetable setup data', err));
   }, [isAdminView]);
+
+  useEffect(() => {
+    if (!selectedFacultyId) {
+      setFacultyEntries([]);
+      return;
+    }
+    api.get<TimetableEntry[]>(`/timetable?faculty_id=${selectedFacultyId}`)
+      .then(setFacultyEntries)
+      .catch((err) => setError(err.message || 'Could not check faculty availability'));
+  }, [selectedFacultyId]);
 
   useEffect(() => {
     const fetchTimetable = async () => {
@@ -99,16 +120,18 @@ export const TimetablePage: React.FC = () => {
 
   const saveSlot = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selectedSlot || !user?.faculty_id) return;
+    if (!selectedSlot) return;
+    const adminSchedule = isAdminView;
     const assignment = assignments.find(item => item.subject_id + item.division_id === selectedAssignment);
-    if (!assignment) return;
+    if (!adminSchedule && (!user?.faculty_id || !assignment)) return;
+    if (adminSchedule && (!selectedDivisionId || !selectedSubjectId || !selectedFacultyId)) return;
     setIsSaving(true);
     setError(null);
     try {
       await api.post('/timetable/entries', {
-        division_id: assignment.division_id,
-        subject_id: assignment.subject_id,
-        faculty_id: user.faculty_id,
+        division_id: adminSchedule ? selectedDivisionId : assignment!.division_id,
+        subject_id: adminSchedule ? selectedSubjectId : assignment!.subject_id,
+        faculty_id: adminSchedule ? selectedFacultyId : user!.faculty_id,
         day_of_week: selectedSlot.day,
         period_number: selectedSlot.period,
         start_time: periodTimes[selectedSlot.period][0],
@@ -118,8 +141,13 @@ export const TimetablePage: React.FC = () => {
       setSelectedSlot(null);
       setSelectedAssignment('');
       setRoomNumber('');
-      const data = await api.get<TimetableEntry[]>(`/timetable?faculty_id=${user.faculty_id}`);
+      const data = await api.get<TimetableEntry[]>(adminSchedule
+        ? `/timetable?division_id=${selectedDivisionId}`
+        : `/timetable?faculty_id=${user!.faculty_id}`);
       setEntries(data);
+      if (adminSchedule) {
+        setFacultyEntries(await api.get<TimetableEntry[]>(`/timetable?faculty_id=${selectedFacultyId}`));
+      }
     } catch (err: any) {
       setError(err.message || 'Unable to schedule this slot');
     } finally {
@@ -239,16 +267,16 @@ export const TimetablePage: React.FC = () => {
                         ) : (
                           <button
                             type="button"
-                            disabled={activeRole !== 'FACULTY'}
-                            onClick={() => activeRole === 'FACULTY' && setSelectedSlot({ day: d.num, period: p })}
+                            disabled={activeRole !== 'FACULTY' && !isAdminView}
+                            onClick={() => (activeRole === 'FACULTY' || isAdminView) && setSelectedSlot({ day: d.num, period: p })}
                             className={`h-20 w-full rounded-xl border border-dashed flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
-                              activeRole === 'FACULTY'
+                              activeRole === 'FACULTY' || isAdminView
                                 ? 'border-slate-300 text-slate-400 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 cursor-pointer'
                                 : 'border-transparent text-slate-300'
                             }`}
                           >
-                            {activeRole === 'FACULTY' && <Plus className="w-4 h-4" />}
-                            <span>{activeRole === 'FACULTY' ? 'Free' : '—'}</span>
+                            {(activeRole === 'FACULTY' || isAdminView) && <Plus className="w-4 h-4" />}
+                            <span>{activeRole === 'FACULTY' || isAdminView ? 'Add lecture' : '—'}</span>
                           </button>
                         )}
                       </td>
@@ -272,7 +300,32 @@ export const TimetablePage: React.FC = () => {
                 <button type="button" onClick={() => setSelectedSlot(null)} className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"><X className="w-4 h-4" /></button>
               </div>
               <form onSubmit={saveSlot} className="space-y-4">
-                <label className="block text-xs font-semibold text-slate-700">
+                {isAdminView ? <>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Division
+                    <select required value={selectedDivisionId} onChange={event => setSelectedDivisionId(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50">
+                      {(classes.find(item => item.id === selectedClassId)?.divisions || []).map(division => <option key={division.id} value={division.id}>Division {division.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Subject
+                    <select required value={selectedSubjectId} onChange={event => setSelectedSubjectId(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50">
+                      <option value="">Select subject</option>
+                      {subjects.map(subject => <option key={subject.id} value={subject.id}>{subject.code} · {subject.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Faculty
+                    <select required value={selectedFacultyId} onChange={event => setSelectedFacultyId(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50">
+                      <option value="">Select faculty</option>
+                      {faculty.map(member => {
+                        const busy = facultyEntries.some(entry => entry.day_of_week === selectedSlot.day && entry.period_number === selectedSlot.period);
+                        return <option key={member.id} value={member.id} disabled={busy}>{member.full_name}{busy ? ' · Busy at this time' : ''}</option>;
+                      })}
+                    </select>
+                    {selectedFacultyId && facultyEntries.some(entry => entry.day_of_week === selectedSlot.day && entry.period_number === selectedSlot.period) && <span className="mt-1 block text-[11px] font-medium text-rose-600">This faculty member is already allocated at this day and period.</span>}
+                  </label>
+                </> : <label className="block text-xs font-semibold text-slate-700">
                   Assigned class and subject
                   <select required value={selectedAssignment} onChange={event => setSelectedAssignment(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50">
                     <option value="">Select a teaching assignment</option>
@@ -282,7 +335,7 @@ export const TimetablePage: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                </label>
+                </label>}
                 <label className="block text-xs font-semibold text-slate-700">
                   Room (optional)
                   <input value={roomNumber} onChange={event => setRoomNumber(event.target.value)} className="mt-1 w-full px-3 py-2.5 border rounded-lg bg-slate-50" placeholder="e.g. Lab-Hall 101" />

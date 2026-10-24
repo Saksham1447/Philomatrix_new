@@ -13,7 +13,8 @@ import {
   Percent,
   BellRing,
   FileCheck,
-  Plus
+  Plus,
+  Camera
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -29,6 +30,12 @@ export const SettingsPage: React.FC = () => {
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifyInApp, setNotifyInApp] = useState(true);
   const [themeMode, setThemeMode] = useState<'LIGHT' | 'DARK'>('LIGHT');
+  const [profileFirstName, setProfileFirstName] = useState('');
+  const [profileMiddleName, setProfileMiddleName] = useState('');
+  const [profileLastName, setProfileLastName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState('');
 
   // Institution Profile State
   const [instName, setInstName] = useState('');
@@ -68,6 +75,12 @@ export const SettingsPage: React.FC = () => {
   const loadSettings = async () => {
     setIsLoading(true);
     try {
+      setProfileFirstName(user?.first_name || '');
+      setProfileMiddleName(user?.middle_name || '');
+      setProfileLastName(user?.last_name || '');
+      setProfileEmail(user?.email || '');
+      setProfilePhone(user?.phone_number || '');
+      setProfilePhoto(user?.profile_photo_url || '');
       // 0. Personal Preferences
       try {
         const prefData = await api.get<any>('/auth/preferences');
@@ -140,6 +153,42 @@ export const SettingsPage: React.FC = () => {
       setSuccessMsg('Personal workspace preferences saved and persisted successfully!');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save preferences');
+    }
+  };
+
+  const handleProfilePhoto = (file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      setErrorMsg('Please select an image file.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setErrorMsg('Profile photos must be 2 MB or smaller.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setProfilePhoto(String(reader.result));
+    reader.onerror = () => setErrorMsg('The profile photo could not be read.');
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveUserProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSuccessMsg(null);
+    setErrorMsg(null);
+    try {
+      await api.put('/auth/profile', {
+        first_name: profileFirstName,
+        middle_name: profileMiddleName || null,
+        last_name: profileLastName,
+        email: profileEmail,
+        phone_number: profilePhone || null,
+        profile_photo_url: profilePhoto || null,
+      });
+      setSuccessMsg('Your profile details and photo were saved successfully.');
+      window.dispatchEvent(new Event('profile:updated'));
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update your profile');
     }
   };
 
@@ -317,8 +366,8 @@ export const SettingsPage: React.FC = () => {
           {/* User Dossier Summary */}
           <div className="p-5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-xl bg-indigo-600 text-white font-bold text-xl flex items-center justify-center shrink-0">
-                {user?.first_name?.[0] || 'U'}{user?.last_name?.[0] || 'P'}
+              <div className="relative w-14 h-14 rounded-xl bg-indigo-600 text-white font-bold text-xl flex items-center justify-center shrink-0 overflow-hidden">
+                {profilePhoto ? <img src={profilePhoto} alt="Profile" className="h-full w-full object-cover" /> : <>{user?.first_name?.[0] || 'U'}{user?.last_name?.[0] || 'P'}</>}
               </div>
               <div>
                 <h3 className="font-bold text-slate-900 text-base">{user?.full_name}</h3>
@@ -334,6 +383,40 @@ export const SettingsPage: React.FC = () => {
               <span className="font-bold text-slate-800">Workspace Authority:</span> Personal settings are isolated and do not alter global institution policies.
             </div>
           </div>
+
+          <form onSubmit={handleSaveUserProfile} className="space-y-4 rounded-xl border border-slate-200 p-5">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Edit profile</h3>
+              <p className="mt-1 text-xs text-slate-500">Update the details shown to other users in your institution.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="h-16 w-16 overflow-hidden rounded-2xl bg-indigo-600 text-xl font-bold text-white flex items-center justify-center">
+                {profilePhoto ? <img src={profilePhoto} alt="Profile preview" className="h-full w-full object-cover" /> : `${profileFirstName[0] || 'U'}${profileLastName[0] || 'P'}`}
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 px-4 py-3 text-xs font-bold text-indigo-700">
+                <Camera className="h-4 w-4" /> Upload profile photo
+                <input type="file" accept="image/*" className="hidden" onChange={(event) => handleProfilePhoto(event.target.files?.[0])} />
+              </label>
+              {profilePhoto && <button type="button" onClick={() => setProfilePhoto('')} className="text-xs font-semibold text-rose-600">Remove photo</button>}
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {([
+                ['First name', profileFirstName, setProfileFirstName],
+                ['Middle name', profileMiddleName, setProfileMiddleName],
+                ['Last name', profileLastName, setProfileLastName],
+                ['Email', profileEmail, setProfileEmail],
+                ['Phone number', profilePhone, setProfilePhone],
+              ] as [string, string, React.Dispatch<React.SetStateAction<string>>][]).map(([label, value, setter]) => (
+                <label key={label} className={label === 'Phone number' ? 'sm:col-span-2' : ''}>
+                  <span className="mb-1.5 block text-xs font-semibold text-slate-600">{label}</span>
+                  <input required={label !== 'Middle name' && label !== 'Phone number'} type={label === 'Email' ? 'email' : 'text'} value={value} onChange={(event) => setter(event.target.value)} className="premium-input w-full" />
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end">
+              <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white"><Save className="h-4 w-4" /> Save profile</button>
+            </div>
+          </form>
 
           <form onSubmit={handleSavePreferences} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
