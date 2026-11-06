@@ -26,6 +26,7 @@ wheels/
 *.sqlite3
 pgdata/
 Philomatrix_ERP/
+backend/storage/study_materials/*.pdf
 
 # Environments
 .env
