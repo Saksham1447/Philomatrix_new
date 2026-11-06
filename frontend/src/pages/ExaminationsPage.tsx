@@ -15,7 +15,8 @@ import {
   FileText,
   Plus,
   Pencil,
-  Trash2
+  Trash2,
+  ChevronDown
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -49,6 +50,7 @@ export const ExaminationsPage: React.FC = () => {
   const [creationClassId, setCreationClassId] = useState('');
   const [creationDivisionId, setCreationDivisionId] = useState('');
   const [selectedAssignmentIds, setSelectedAssignmentIds] = useState<string[]>([]);
+  const [expandedExamIds, setExpandedExamIds] = useState<string[]>([]);
 
   const loadExams = async () => {
     try {
@@ -535,17 +537,85 @@ export const ExaminationsPage: React.FC = () => {
               </button>
             </form>
           )}
-          <div className="mt-4 divide-y divide-slate-100">
-            {examinations.flatMap(exam => exam.subjects.map(subject => (
-              <div key={`${exam.id}-${subject.id}`} className="flex flex-wrap items-center justify-between gap-2 py-3 text-sm">
-                <div><p className="font-bold text-slate-800">{exam.name} · {subject.subject_name}</p><p className="text-xs text-slate-500">{subject.class_name}{subject.division_name ? ` / ${subject.division_name}` : ''} · {subject.faculty_name || 'Teacher not assigned'} · {subject.exam_date || exam.start_date}{subject.start_time ? ` · ${subject.start_time.slice(0, 5)}–${subject.end_time?.slice(0, 5) || ''}` : ''}</p></div>
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${subject.marks_status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : subject.marks_status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>{subject.marks_status || 'NOT_STARTED'}</span>
-                {exam.subjects[0]?.id === subject.id && <div className="flex gap-2">
-                  <button type="button" title="Edit examination" disabled={exam.is_published || exam.subjects.some(item => item.marks_status && item.marks_status !== 'NOT_STARTED')} onClick={() => beginEditExam(exam)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40"><Pencil className="h-3.5 w-3.5" />Edit</button>
-                  <button type="button" title="Delete examination" disabled={exam.is_published || exam.subjects.some(item => item.marks_status && item.marks_status !== 'NOT_STARTED')} onClick={() => void handleDeleteExam(exam)} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Delete</button>
-                </div>}
-              </div>
-            )))}
+          <div className="mt-5 grid gap-4">
+            {examinations.map(exam => {
+              const isExpanded = expandedExamIds.includes(exam.id);
+              const classNames = [...new Set(exam.subjects.map(subject => subject.class_name).filter(Boolean))];
+              const statuses = exam.subjects.map(subject => subject.marks_status || 'NOT_STARTED');
+              const hasProgress = statuses.some(status => status !== 'NOT_STARTED');
+              return (
+                <article key={exam.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-white to-slate-50 shadow-sm transition hover:border-brand-200 hover:shadow-md">
+                  <div
+                    onClick={() => setExpandedExamIds(current => isExpanded
+                      ? current.filter(id => id !== exam.id)
+                      : [...current, exam.id])}
+                    className="flex w-full items-center justify-between gap-4 p-5 text-left"
+                    aria-expanded={isExpanded}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setExpandedExamIds(current => isExpanded
+                          ? current.filter(id => id !== exam.id)
+                          : [...current, exam.id]);
+                      }
+                    }}
+                  >
+                    <div className="flex min-w-0 items-center gap-4">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-100 text-brand-700">
+                        <FileText className="h-5 w-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-base font-bold text-slate-900">
+                          {classNames.join(', ') || 'Class schedule'} · {exam.name}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {exam.exam_type.replace('_', ' ')} · {exam.start_date} to {exam.end_date} · {exam.subjects.length} scheduled subject{exam.subjects.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <button type="button" title="Edit examination" disabled={exam.is_published || hasProgress} onClick={event => { event.stopPropagation(); beginEditExam(exam); }} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="h-3.5 w-3.5" />Edit</button>
+                      <span className={`hidden rounded-full px-2.5 py-1 text-[10px] font-bold uppercase sm:inline-flex ${hasProgress ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {hasProgress ? 'Marks in progress' : 'Ready for entry'}
+                      </span>
+                      <ChevronDown className={`h-5 w-5 text-slate-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                    </div>
+                  </div>
+                  {isExpanded && (
+                    <div className="border-t border-slate-200 bg-white/70 p-4">
+                      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs font-semibold text-slate-500">Scheduled subjects and allocated teachers</p>
+                        <div className="flex gap-2">
+                          <button type="button" title="Edit examination" disabled={exam.is_published || hasProgress} onClick={() => beginEditExam(exam)} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"><Pencil className="h-3.5 w-3.5" />Edit</button>
+                          <button type="button" title="Delete examination" disabled={exam.is_published || hasProgress} onClick={() => void handleDeleteExam(exam)} className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+                        </div>
+                      </div>
+                      <div className="grid gap-3 lg:grid-cols-2">
+                        {exam.subjects.map(subject => (
+                          <div key={`${exam.id}-${subject.id}`} className="rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-bold text-slate-800">{subject.subject_name} <span className="font-medium text-slate-500">({subject.subject_code})</span></p>
+                                <p className="mt-1 text-xs text-slate-500">{subject.class_name}{subject.division_name ? ` / Division ${subject.division_name}` : ''}</p>
+                              </div>
+                              <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${subject.marks_status === 'APPROVED' ? 'bg-emerald-100 text-emerald-800' : subject.marks_status === 'PENDING' ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-600'}`}>{subject.marks_status || 'NOT_STARTED'}</span>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                              <span><strong className="text-slate-800">Teacher:</strong> {subject.faculty_name || 'Not assigned'}</span>
+                              <span><strong className="text-slate-800">Date:</strong> {subject.exam_date || exam.start_date}</span>
+                              <span><strong className="text-slate-800">Time:</strong> {subject.start_time?.slice(0, 5) || '--'}–{subject.end_time?.slice(0, 5) || '--'}</span>
+                              <span><strong className="text-slate-800">Marks:</strong> {Number(subject.max_theory_marks) + Number(subject.max_practical_marks)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
             {examinations.every(exam => exam.subjects.length === 0) && <p className="py-6 text-center text-sm text-slate-400">No examination schedules yet.</p>}
           </div>
         </section>
