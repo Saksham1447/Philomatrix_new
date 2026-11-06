@@ -56,6 +56,8 @@ describe('ExaminationsPage', () => {
     fireEvent.change(screen.getByLabelText('Physics exam date'), { target: { value: '2026-10-11' } });
     fireEvent.change(screen.getByLabelText('Physics start time'), { target: { value: '10:15' } });
     fireEvent.change(screen.getByLabelText('Physics end time'), { target: { value: '11:45' } });
+    fireEvent.change(screen.getByLabelText('Physics theory maximum marks'), { target: { value: '30' } });
+    fireEvent.change(screen.getByLabelText('Physics practical maximum marks'), { target: { value: '0' } });
     fireEvent.click(screen.getByRole('button', { name: 'Create examination schedule' }));
 
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/examinations', expect.objectContaining({
@@ -69,6 +71,8 @@ describe('ExaminationsPage', () => {
         exam_date: '2026-10-11',
         start_time: '10:15',
         end_time: '11:45',
+        max_theory_marks: 30,
+        max_practical_marks: 0,
       })],
     })));
   });

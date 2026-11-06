@@ -39,7 +39,7 @@ export const ExaminationsPage: React.FC = () => {
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [showCreateExam, setShowCreateExam] = useState(false);
   const [editingExam, setEditingExam] = useState<Examination | null>(null);
-  const [subjectSchedule, setSubjectSchedule] = useState<Record<string, { exam_date: string; start_time: string; end_time: string }>>({});
+  const [subjectSchedule, setSubjectSchedule] = useState<Record<string, { exam_date: string; start_time: string; end_time: string; max_theory_marks: string; max_practical_marks: string }>>({});
   const [examForm, setExamForm] = useState({
     academic_year_id: '',
     name: '',
@@ -176,7 +176,7 @@ export const ExaminationsPage: React.FC = () => {
   const hasClassCurriculum = creationClassSubjectIds.length > 0;
 
   const getSubjectSchedule = (key: string, defaultDate = examForm.start_date) =>
-    subjectSchedule[key] || { exam_date: defaultDate, start_time: '09:00', end_time: '10:00' };
+    subjectSchedule[key] || { exam_date: defaultDate, start_time: '09:00', end_time: '10:00', max_theory_marks: '70', max_practical_marks: '30' };
 
   const handleCreateExam = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -197,7 +197,11 @@ export const ExaminationsPage: React.FC = () => {
         : assignments.filter(assignment => selectedAssignmentIds.includes(assignment.id));
       const missingSchedule = selectedItems.find(item => {
         const schedule = getSubjectSchedule(item.id);
-        return !schedule.exam_date || !schedule.start_time || !schedule.end_time || schedule.end_time <= schedule.start_time;
+        return !schedule.exam_date || !schedule.start_time || !schedule.end_time ||
+          schedule.end_time <= schedule.start_time ||
+          Number(schedule.max_theory_marks) < 0 ||
+          Number(schedule.max_practical_marks) < 0 ||
+          Number(schedule.max_theory_marks) + Number(schedule.max_practical_marks) <= 0;
       });
       if (missingSchedule) {
         setFeedbackMsg('Set a valid date, start time, and end time for every subject. End time must be after start time.');
@@ -221,9 +225,9 @@ export const ExaminationsPage: React.FC = () => {
             class_id: assignment.class_id || creationClassId,
             division_id: assignment.division_id,
             faculty_id: assignment.faculty_id,
-            max_theory_marks: Number(assignment.max_theory_marks ?? maxTheory),
-            max_practical_marks: Number(assignment.max_practical_marks ?? maxPractical),
-            min_passing_marks: Number(assignment.min_passing_marks ?? ((maxTheory + maxPractical) * Number(subject?.min_pass_percentage ?? 35) / 100)),
+            max_theory_marks: Number(schedule.max_theory_marks || assignment.max_theory_marks || maxTheory),
+            max_practical_marks: Number(schedule.max_practical_marks || assignment.max_practical_marks || maxPractical),
+            min_passing_marks: Number(assignment.min_passing_marks ?? ((Number(schedule.max_theory_marks || assignment.max_theory_marks || maxTheory) + Number(schedule.max_practical_marks || assignment.max_practical_marks || maxPractical)) * Number(subject?.min_pass_percentage ?? 35) / 100)),
             exam_date: schedule.exam_date,
             start_time: schedule.start_time,
             end_time: schedule.end_time,
@@ -260,6 +264,8 @@ export const ExaminationsPage: React.FC = () => {
         exam_date: subject.exam_date || exam.start_date,
         start_time: subject.start_time?.slice(0, 5) || '09:00',
         end_time: subject.end_time?.slice(0, 5) || '10:00',
+        max_theory_marks: String(subject.max_theory_marks ?? 70),
+        max_practical_marks: String(subject.max_practical_marks ?? 30),
       },
     ])));
     setShowCreateExam(true);
@@ -503,7 +509,13 @@ export const ExaminationsPage: React.FC = () => {
                           return event.target.checked ? [...withoutSubject, assignment.id] : withoutSubject;
                         });
                         setSubjectSchedule(current => event.target.checked
-                          ? { ...current, [assignment.id]: current[assignment.id] || { exam_date: examForm.start_date, start_time: '09:00', end_time: '10:00' } }
+                          ? { ...current, [assignment.id]: current[assignment.id] || {
+                            exam_date: examForm.start_date,
+                            start_time: '09:00',
+                            end_time: '10:00',
+                            max_theory_marks: String(assignment.max_theory_marks ?? academicSubjects.find(subject => subject.id === assignment.subject_id)?.max_theory_marks ?? 70),
+                            max_practical_marks: String(assignment.max_practical_marks ?? academicSubjects.find(subject => subject.id === assignment.subject_id)?.max_practical_marks ?? 30),
+                          } }
                           : Object.fromEntries(Object.entries(current).filter(([key]) => key !== assignment.id)));
                       }} />
                       <span><strong className="block text-slate-800">{assignment.subject_name} ({assignment.subject_code})</strong><span className="text-slate-500">{assignment.faculty_name}</span></span>
@@ -515,10 +527,10 @@ export const ExaminationsPage: React.FC = () => {
                     ? <>No subjects are configured for this class and academic year. <Link className="font-semibold text-brand-600 underline" to={`/departments/${creationClassId}`}>Configure class subjects and division teachers</Link> first.</>
                     : <>The class subjects are configured, but no teachers are assigned to this division for the selected academic year. <Link className="font-semibold text-brand-600 underline" to={`/departments/${creationClassId}`}>Assign subject teachers</Link> first.</>}
                 </p>}
-                {editingExam && <p className="mb-3 text-xs text-slate-500">Edit each subject's examination date and time below. Subjects and teacher assignments are retained.</p>}
+                {editingExam && <p className="mb-3 text-xs text-slate-500">Edit each subject's date, time, and maximum marks below. Subjects and teacher assignments are retained.</p>}
                 {scheduleRows.map((item: any) => {
                   const schedule = getSubjectSchedule(item.id);
-                  return <div key={item.id} className="mt-3 grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-4">
+                  return <div key={item.id} className="mt-3 grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2 lg:grid-cols-6">
                     <div className="self-center text-xs"><strong className="block text-slate-800">{item.subject_name}</strong><span className="text-slate-500">{item.faculty_name || academicSubjects.find(subject => subject.id === item.subject_id)?.name || 'Assigned teacher'}</span></div>
                     <label className="text-xs font-semibold text-slate-600">Exam date
                       <input aria-label={`${item.subject_name} exam date`} type="date" required value={schedule.exam_date} onChange={event => setSubjectSchedule(current => ({ ...current, [item.id]: { ...getSubjectSchedule(item.id), exam_date: event.target.value } }))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
@@ -528,6 +540,12 @@ export const ExaminationsPage: React.FC = () => {
                     </label>
                     <label className="text-xs font-semibold text-slate-600">End time
                       <input aria-label={`${item.subject_name} end time`} type="time" required min={schedule.start_time} value={schedule.end_time} onChange={event => setSubjectSchedule(current => ({ ...current, [item.id]: { ...getSubjectSchedule(item.id), end_time: event.target.value } }))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Theory max marks
+                      <input aria-label={`${item.subject_name} theory maximum marks`} type="number" min="0" step="0.5" required value={schedule.max_theory_marks} onChange={event => setSubjectSchedule(current => ({ ...current, [item.id]: { ...getSubjectSchedule(item.id), max_theory_marks: event.target.value } }))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
+                    </label>
+                    <label className="text-xs font-semibold text-slate-600">Practical max marks
+                      <input aria-label={`${item.subject_name} practical maximum marks`} type="number" min="0" step="0.5" required value={schedule.max_practical_marks} onChange={event => setSubjectSchedule(current => ({ ...current, [item.id]: { ...getSubjectSchedule(item.id), max_practical_marks: event.target.value } }))} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
                     </label>
                   </div>;
                 })}
