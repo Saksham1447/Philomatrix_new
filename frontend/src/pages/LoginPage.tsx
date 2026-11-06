@@ -37,10 +37,37 @@ export const LoginPage: React.FC = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get<Institution[]>('/institutions/public')
-      .then(setInstitutions)
-      .catch(() => setError('Institutes could not be loaded. Please try again.'))
-      .finally(() => setIsLoadingInstitutions(false));
+    let isMounted = true;
+    const loadInstitutions = async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          const data = await api.get<Institution[]>('/institutions/public', { cache: 'no-store' });
+          if (isMounted) {
+            setInstitutions(data);
+          }
+          return;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 2) {
+            await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+          }
+        }
+      }
+      if (isMounted) {
+        console.error('Failed to load public institutes', lastError);
+        setError('Institutes could not be loaded. Please try again.');
+      }
+    };
+
+    loadInstitutions().finally(() => {
+      if (isMounted) {
+        setIsLoadingInstitutions(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const selectedIndex = useMemo(
