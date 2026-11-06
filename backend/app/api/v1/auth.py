@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -26,6 +27,16 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+def _find_login_user(db: DocStore, identity: str) -> UserDoc | None:
+    """Find a user across migrated identity casing without changing stored data."""
+    user = db.find_one("users", {"$or": [{"username": identity}, {"email": identity}]})
+    if user:
+        return user
+
+    pattern = re.compile(f"^{re.escape(identity)}$", re.IGNORECASE)
+    return db.find_one("users", {"$or": [{"username": pattern}, {"email": pattern}]})
+
+
 @router.post("/login", response_model=Token)
 def login(request: LoginRequest, db: DocStore = Depends(get_db)):
     """Authenticate user and return access & refresh JWT tokens."""
@@ -43,14 +54,11 @@ def login(request: LoginRequest, db: DocStore = Depends(get_db)):
             db = get_tenant_store(selected.database_url)
 
     identity = request.username_or_email.strip()
-    user = db.find_one("users", {"$or": [{"username": identity}, {"email": identity}]})
+    user = _find_login_user(db, identity)
     # Older migrated accounts can remain in the control database while their
     # institution is being moved to an isolated tenant database.
     if not user and selected_institution is not None:
-        control_user = get_control_store().find_one(
-            "users",
-            {"$or": [{"username": identity}, {"email": identity}]},
-        )
+        control_user = _find_login_user(get_control_store(), identity)
         if control_user and control_user.institution_id == selected_institution.id:
             db = get_control_store()
             user = control_user
