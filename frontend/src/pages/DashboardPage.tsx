@@ -52,36 +52,68 @@ export const DashboardPage: React.FC = () => {
     const loadDashboardData = async () => {
       setIsLoading(true);
       try {
-        // Universal: Notices
-        const nList = await api.get<any[]>('/notices');
-        setNotices(nList.slice(0, 3));
+        // Load each dashboard area independently so one unavailable widget does
+        // not prevent the remaining data from being displayed.
+        try {
+          const nList = await api.get<any[]>('/notices');
+          setNotices(nList.slice(0, 3));
+        } catch (err) {
+          console.error('Error loading dashboard notices', err);
+        }
 
         if (activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN') {
-          const perf = await api.get<any>('/reports/analytics/class-performance');
-          setAnalytics(perf);
-          const approvals = await api.get<any[]>('/examinations/marks/approvals/pending');
-          setPendingApprovals(approvals);
+          try {
+            const perf = await api.get<any>('/reports/analytics/class-performance');
+            setAnalytics(perf);
+          } catch (err) {
+            console.error('Error loading dashboard analytics', err);
+          }
+          try {
+            const approvals = await api.get<any[]>('/examinations/marks/approvals/pending');
+            setPendingApprovals(approvals);
+          } catch (err) {
+            console.error('Error loading pending approvals', err);
+          }
         } else if (activeRole === 'FACULTY') {
-          const slots = await api.get<any[]>('/attendance/today-slots');
-          setTodaySlots(slots);
+          try {
+            setTodaySlots(await api.get<any[]>('/attendance/today-slots'));
+          } catch (err) {
+            console.error('Error loading today\'s timetable', err);
+          }
         } else if (activeRole === 'STUDENT' && user?.student_id) {
-          const att = await api.get<any>(`/attendance/summary/student/${user.student_id}`);
-          setStudentSummary(att);
-          const marks = await api.get<any[]>(`/examinations/marks/student/${user.student_id}`);
-          setStudentMarks(marks);
+          try {
+            setStudentSummary(await api.get<any>(`/attendance/summary/student/${user.student_id}`));
+          } catch (err) {
+            console.error('Error loading student attendance', err);
+          }
+          try {
+            setStudentMarks(await api.get<any[]>(`/examinations/marks/student/${user.student_id}`));
+          } catch (err) {
+            console.error('Error loading student marks', err);
+          }
         } else if (activeRole === 'PARENT' && activeChild) {
-          const att = await api.get<any>(`/attendance/summary/student/${activeChild.id}`);
-          setStudentSummary(att);
-          const marks = await api.get<any[]>(`/examinations/marks/student/${activeChild.id}`);
-          setStudentMarks(marks);
+          try {
+            setStudentSummary(await api.get<any>(`/attendance/summary/student/${activeChild.id}`));
+          } catch (err) {
+            console.error('Error loading child attendance', err);
+          }
+          try {
+            setStudentMarks(await api.get<any[]>(`/examinations/marks/student/${activeChild.id}`));
+          } catch (err) {
+            console.error('Error loading child marks', err);
+          }
         } else if (activeRole === 'OFFICE_STAFF') {
-          const leave = await api.get<any[]>('/leave-requests');
-          setLeaveRequests(leave);
-          const registrations = await api.get<any[]>('/faculty-registrations');
-          setFacultyRegistrations(registrations);
+          try {
+            setLeaveRequests(await api.get<any[]>('/leave-requests'));
+          } catch (err) {
+            console.error('Error loading leave requests', err);
+          }
+          try {
+            setFacultyRegistrations(await api.get<any[]>('/faculty-registrations'));
+          } catch (err) {
+            console.error('Error loading faculty registrations', err);
+          }
         }
-      } catch (err) {
-        console.error('Error loading dashboard data', err);
       } finally {
         setIsLoading(false);
       }
