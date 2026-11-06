@@ -3,7 +3,6 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { ClassModel, Faculty, Subject, TimetableEntry } from '../types';
 import { formatIndianTime } from '../utils/time';
-import { FacultySlotPicker } from '../components/common/FacultySlotPicker';
 import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, ShieldCheck, ChevronRight } from 'lucide-react';
 
 const SUBJECT_COLORS = [
@@ -18,7 +17,7 @@ const SUBJECT_COLORS = [
 export const TimetablePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
   const isAdminView = activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF' || activeRole === 'SUPER_ADMIN';
-  const canCreateSchedule = activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY' || activeRole === 'OFFICE_STAFF';
+  const canCreateSchedule = activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'OFFICE_STAFF';
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [assignments, setAssignments] = useState<Array<{ subject_id: string; subject_name: string; subject_code: string; division_id: string; division_name: string; class_name: string }>>([]);
@@ -227,14 +226,6 @@ export const TimetablePage: React.FC = () => {
           </button>
         )}
       </div>
-
-      {activeRole === 'FACULTY' && user?.faculty_id && (
-        <FacultySlotPicker
-          facultyId={user.faculty_id}
-          assignments={assignments}
-          onScheduled={async () => setEntries(await api.get<TimetableEntry[]>(`/timetable?faculty_id=${user.faculty_id}`))}
-        />
-      )}
 
       {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 
