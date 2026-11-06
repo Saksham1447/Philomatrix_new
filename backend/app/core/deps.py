@@ -5,7 +5,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 
-from app.core.database import get_db as get_database_store
+from app.core.database import get_control_store, get_db as get_database_store, get_tenant_store
 from app.core.docstore import Doc, DocStore, UserDoc
 from app.core.security import decode_token
 
@@ -33,6 +33,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: DocStore = Depends
         raise credentials_exception
 
     user = db.get("users", user_id)
+    if user is None:
+        institution_id = payload.get("institution_id")
+        if institution_id:
+            institution = get_control_store().get("institutions", institution_id)
+            if institution and institution.database_url:
+                tenant_db = get_tenant_store(institution.database_url)
+                user = tenant_db.get("users", user_id)
+            if user is None:
+                control_user = get_control_store().get("users", user_id)
+                if control_user and control_user.institution_id == institution_id:
+                    user = control_user
     if user is None:
         raise credentials_exception
     if not user.is_active:

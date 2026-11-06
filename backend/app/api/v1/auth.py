@@ -29,18 +29,31 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/login", response_model=Token)
 def login(request: LoginRequest, db: DocStore = Depends(get_db)):
     """Authenticate user and return access & refresh JWT tokens."""
+    selected_institution = None
     if request.institution_id:
-        selected = get_control_store().find_one(
+        control_store = get_control_store()
+        selected = control_store.find_one(
             "institutions",
             {"id": request.institution_id, "status": "ACTIVE"},
         )
         if not selected:
             raise HTTPException(status_code=403, detail="Selected institute is not available")
+        selected_institution = selected
         if selected.database_url:
             db = get_tenant_store(selected.database_url)
 
     identity = request.username_or_email.strip()
     user = db.find_one("users", {"$or": [{"username": identity}, {"email": identity}]})
+    # Older migrated accounts can remain in the control database while their
+    # institution is being moved to an isolated tenant database.
+    if not user and selected_institution is not None:
+        control_user = get_control_store().find_one(
+            "users",
+            {"$or": [{"username": identity}, {"email": identity}]},
+        )
+        if control_user and control_user.institution_id == selected_institution.id:
+            db = get_control_store()
+            user = control_user
     if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
