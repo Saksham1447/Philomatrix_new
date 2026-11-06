@@ -62,12 +62,14 @@ def get_timetable(
     """Fetch timetable slots by division, faculty, or student."""
     query = {"institution_id": current_user.institution_id}
 
-    if division_id:
+    if current_user.faculty_profile:
+        # Faculty can only see timetable entries assigned to their own profile.
+        # Ignore client-supplied faculty/division filters to prevent cross-faculty leakage.
+        query["faculty_id"] = current_user.faculty_profile.id
+    elif division_id:
         query["division_id"] = division_id
     elif faculty_id:
         query["faculty_id"] = faculty_id
-    elif current_user.faculty_profile:
-        query["faculty_id"] = current_user.faculty_profile.id
     elif current_user.student_profile:
         sid = current_user.student_profile.id
         enrollment = db.find_one("enrollments", {"student_id": sid})

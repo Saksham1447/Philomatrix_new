@@ -9,9 +9,11 @@ export const StudentsPage: React.FC = () => {
   const { activeRole } = useAuth();
   const [searchParams] = useSearchParams();
   const classFilter = searchParams.get('class_id');
+  const divisionFilter = searchParams.get('division_id');
   const [students, setStudents] = useState<Student[]>([]);
   const [search, setSearch] = useState('');
   const [selectedClassId, setSelectedClassId] = useState(classFilter || '');
+  const [selectedDivisionId, setSelectedDivisionId] = useState(divisionFilter || '');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -49,6 +51,7 @@ export const StudentsPage: React.FC = () => {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (selectedClassId) params.set('class_id', selectedClassId);
+      if (selectedDivisionId) params.set('division_id', selectedDivisionId);
       const data = await api.get<Student[]>(`/students${params.toString() ? `?${params.toString()}` : ''}`);
       setStudents(data);
     } catch (err) {
@@ -59,7 +62,7 @@ export const StudentsPage: React.FC = () => {
 
   useEffect(() => {
     loadStudents();
-  }, [search, selectedClassId]);
+  }, [search, selectedClassId, selectedDivisionId]);
 
   useEffect(() => {
     const fetchMetadata = async () => {
@@ -84,6 +87,9 @@ export const StudentsPage: React.FC = () => {
     };
     fetchMetadata();
   }, []);
+
+  const selectedClass = classes.find((item: any) => item.id === selectedClassId);
+  const availableDivisions = selectedClass?.divisions || [];
 
   const handleCreateStudent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -230,16 +236,20 @@ export const StudentsPage: React.FC = () => {
           <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide"><Search className="h-4 w-4 text-indigo-300" /> Student Search &amp; Cohort Filters</h2>
           <span className="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-[10px] font-bold text-cyan-200">Active Query Engine</span>
         </div>
-        <div className="grid gap-3 p-4 md:grid-cols-[minmax(240px,1fr)_220px_190px]">
+        <div className="grid gap-3 p-4 md:grid-cols-[minmax(240px,1fr)_220px_190px_190px]">
           <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5">
             <Search className="h-4 w-4 shrink-0 text-slate-400" />
             <input type="search" value={search} onChange={event => setSearch(event.target.value)} aria-label="Search students"
               placeholder="Search by student name, roll number, admission ID, or email..."
               className="w-full bg-transparent py-3 text-sm text-slate-800 outline-none placeholder:text-slate-400" />
           </label>
-          <select aria-label="Filter by class" value={selectedClassId} onChange={event => setSelectedClassId(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 outline-none focus:border-indigo-400">
+          <select aria-label="Filter by class" value={selectedClassId} onChange={event => { setSelectedClassId(event.target.value); setSelectedDivisionId(''); }} className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 outline-none focus:border-indigo-400">
             <option value="">All Classes</option>
             {classes.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
+          <select aria-label="Filter by division" value={selectedDivisionId} onChange={event => setSelectedDivisionId(event.target.value)} disabled={!selectedClassId} className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 outline-none focus:border-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-50">
+            <option value="">All Divisions</option>
+            {availableDivisions.map((division: any) => <option key={division.id} value={division.id}>Division {division.name}</option>)}
           </select>
           <select aria-label="Filter by status" value={statusFilter} onChange={event => setStatusFilter(event.target.value as typeof statusFilter)} className="rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-700 outline-none focus:border-indigo-400">
             <option value="ALL">All Statuses</option>

@@ -105,6 +105,8 @@ describe('StudentsPage', () => {
     fireEvent.change(screen.getByRole('combobox', { name: 'Filter by class' }), { target: { value: 'class-11' } });
 
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/students?class_id=class-11'));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by division' }), { target: { value: 'division-a' } });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/students?class_id=class-11&division_id=division-a'));
   });
 
   it('updates and persists a student fee status', async () => {
