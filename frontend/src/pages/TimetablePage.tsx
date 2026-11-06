@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { ClassModel, Faculty, Subject, TimetableEntry } from '../types';
 import { formatIndianTime } from '../utils/time';
+import { FacultySlotPicker } from '../components/common/FacultySlotPicker';
 import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, ShieldCheck, ChevronRight } from 'lucide-react';
 
 const SUBJECT_COLORS = [
@@ -37,6 +38,7 @@ export const TimetablePage: React.FC = () => {
   const [selectedDivisionId, setSelectedDivisionId] = useState('');
   const [slotTimes, setSlotTimes] = useState<Record<number, [string, string]>>({});
   const [slotSubjects, setSlotSubjects] = useState<Record<string, string | null>>({});
+  const [timetableRefreshKey, setTimetableRefreshKey] = useState(0);
 
   const days = [
     { num: 1, name: 'Monday' },
@@ -131,7 +133,7 @@ export const TimetablePage: React.FC = () => {
     };
 
     fetchTimetable();
-  }, [activeRole, activeChild, user, isAdminView, selectedDivisionId]);
+  }, [activeRole, activeChild, user, isAdminView, selectedDivisionId, timetableRefreshKey]);
 
   const getSlot = (dayNum: number, periodNum: number) => {
     return entries.find(e => e.day_of_week === dayNum && e.period_number === periodNum);
@@ -274,6 +276,14 @@ export const TimetablePage: React.FC = () => {
           )}
         </div>
       </section>
+
+      {activeRole === 'FACULTY' && user?.faculty_id && (
+        <FacultySlotPicker
+          facultyId={user.faculty_id}
+          assignments={assignments}
+          onScheduled={() => setTimetableRefreshKey((current) => current + 1)}
+        />
+      )}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 bg-gradient-to-r from-[#17263e] via-[#223858] to-[#17263e] px-6 py-5 text-white">
