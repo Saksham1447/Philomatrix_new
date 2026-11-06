@@ -78,19 +78,19 @@ def get_tenant_store(name: str | None) -> DocStore:
     name = _validate_database_name(name)
     client = get_mongo_client()
     legacy_prefix = f"{name}__"
-    tenant_database = client[_tenant_collections_database()]
-    if any(
-        collection.startswith(legacy_prefix)
-        for collection in tenant_database.list_collection_names()
-    ):
-        return _store_for_name(tenant_database.name, name)
+    preferred_database = _tenant_collections_database()
+    database_names = [preferred_database, _prefix()]
+    # A deployment may temporarily have an unset or stale tenant-database
+    # setting. Discover an existing prefixed namespace instead of silently
+    # routing to an empty database.
+    for database_name in client.list_database_names():
+        if database_name not in database_names and database_name not in {"admin", "local", "config", name}:
+            database_names.append(database_name)
+    for database_name in database_names:
+        if any(collection.startswith(legacy_prefix) for collection in client[database_name].list_collection_names()):
+            return _store_for_name(database_name, name)
     if client[name].list_collection_names():
         return _store_for_name(name)
-    if any(
-        collection.startswith(legacy_prefix)
-        for collection in client[_prefix()].list_collection_names()
-    ):
-        return _store_for_name(_prefix(), name)
     return _store_for_name(name)
 
 
