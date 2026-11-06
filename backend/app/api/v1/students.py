@@ -9,6 +9,7 @@ from app.core.q import group_by, ids, in_, regex_contains
 from app.schemas.student import (
     StudentCreate,
     StudentResponse,
+    StudentFeeStatusUpdate,
     GuardianResponse,
     LinkGuardianRequest,
 )
@@ -47,6 +48,7 @@ def _student_response(student, user, enrollment, refs: _Refs, guardians=None) ->
         admission_date=student.admission_date,
         address=student.address,
         status=student.status,
+        fee_status=student.get("fee_status", "PENDING"),
         class_name=cls.name if enrollment and cls else None,
         division_name=division.name if enrollment and division else None,
         division_id=enrollment.division_id if enrollment else None,
@@ -94,6 +96,7 @@ def list_students(
         )
         query["$or"] = [
             {"admission_number": pattern},
+            {"roll_number": pattern},
             {"user_id": in_(ids(matching_users))},
         ]
 
@@ -315,6 +318,33 @@ def update_student(
     except Conflict:
         raise HTTPException(status_code=400, detail="Email or admission number already in use")
     return _student_response(student, user, enrollment, _Refs(db, [enrollment]))
+
+
+@router.put("/{id}/fee-status", response_model=StudentResponse)
+def update_student_fee_status(
+    id: str,
+    request: StudentFeeStatusUpdate,
+    current_user: UserDoc = Depends(require_roles("OFFICE_STAFF", "PRINCIPAL")),
+    db: DocStore = Depends(get_db),
+):
+    student = db.find_one("students", {"id": id, "institution_id": current_user.institution_id})
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    previous_status = student.get("fee_status", "PENDING")
+    student = db.update(student, {"fee_status": request.fee_status})
+    db.insert("audit_logs", {
+        "institution_id": current_user.institution_id,
+        "user_id": current_user.id,
+        "action": "STUDENT_FEE_STATUS_UPDATED",
+        "entity_type": "student",
+        "entity_id": student.id,
+        "previous_state": {"fee_status": previous_status},
+        "new_state": {"fee_status": request.fee_status},
+        "reason": "Student fee status updated",
+    })
+    enrollment = db.find_one("enrollments", {"student_id": student.id})
+    return _student_response(student, db.get("users", student.user_id), enrollment, _Refs(db, [enrollment]))
 
 
 @router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)

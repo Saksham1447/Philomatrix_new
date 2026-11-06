@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.core.database import clear_store_caches, ensure_indexes, get_control_store
+from app.core.config import settings
 from app.core.docstore import DocStore
 from app.core.mongo import set_mongo_client
 from app.seeds.seed_demo import run_seed
@@ -23,6 +24,7 @@ def isolated_mongo_store(monkeypatch):
     # and explicit route transactions remain untouched outside these tests.
     monkeypatch.setattr(DocStore, "request_scope", no_mock_transaction)
     monkeypatch.setattr(DocStore, "transaction", no_mock_transaction)
+    monkeypatch.setattr(settings, "MONGODB_TENANT_COLLECTIONS_DB", None)
 
     client = mongomock.MongoClient(tz_aware=True)
     set_mongo_client(client)

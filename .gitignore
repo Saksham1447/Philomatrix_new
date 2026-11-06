@@ -25,6 +25,7 @@ wheels/
 *.db
 *.sqlite3
 pgdata/
+Philomatrix_ERP/
 
 # Environments
 .env

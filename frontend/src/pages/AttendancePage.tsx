@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { formatIndianTime } from '../utils/time';
+import { formatIndianTime, formatLocalDate, toIndiaDateInputValue } from '../utils/time';
 import { AttendanceRecordItem, StudentAttendanceSummary } from '../types';
 import {
   CalendarCheck,
@@ -32,14 +32,14 @@ export const AttendancePage: React.FC = () => {
   const [todaySlots, setTodaySlots] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
   const [roster, setRoster] = useState<AttendanceRecordItem[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(toIndiaDateInputValue());
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const [existingSessionId, setExistingSessionId] = useState<string | null>(null);
 
   // Correction Modal State
   const [isCorrectionModalOpen, setIsCorrectionModalOpen] = useState(false);
   const [correctionStudent, setCorrectionStudent] = useState<any | null>(null);
-  const [correctionTargetStatus, setCorrectionTargetStatus] = useState<'PRESENT' | 'ABSENT' | 'LATE'>('PRESENT');
+  const [correctionTargetStatus, setCorrectionTargetStatus] = useState<'PRESENT' | 'ABSENT'>('PRESENT');
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionLoading, setCorrectionLoading] = useState(false);
 
@@ -64,15 +64,21 @@ export const AttendancePage: React.FC = () => {
     setErrorMsg(null);
     try {
       if (activeRole === 'FACULTY') {
-        const slots = await api.get<any[]>(`/attendance/today-slots?target_date=${selectedDate}`);
-        setTodaySlots(slots);
-        if (slots.length > 0) {
+        const slots = await api.get<any[]>(
+          `/attendance/today-slots?target_date=${selectedDate}&include_all_slots=true`
+        );
+        const selectedWeekday = new Date(`${selectedDate}T00:00:00`).getDay() || 7;
+        const dateSlots = slots.filter(slot => slot.day_of_week === selectedWeekday);
+        setTodaySlots(dateSlots);
+        if (dateSlots.length > 0) {
           // If no slot selected yet or current slot not in list, pick first
-          const current = slots.find(s => s.timetable_entry_id === selectedSlot?.timetable_entry_id) || slots[0];
+          const current = dateSlots.find(s => s.timetable_entry_id === selectedSlot?.timetable_entry_id) || dateSlots[0];
           selectSlot(current);
         } else {
           setRoster([]);
           setSelectedSlot(null);
+          setIsSessionLocked(false);
+          setExistingSessionId(null);
         }
         // Load recent sessions for logs table
         const pastSessions = await api.get<any[]>('/attendance/sessions');
@@ -134,7 +140,7 @@ export const AttendancePage: React.FC = () => {
       }));
 
       setRoster(items);
-      setIsSessionLocked(slot.is_submitted || !slot.is_live);
+      setIsSessionLocked(slot.is_submitted);
       setExistingSessionId(slot.session_id || null);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to load class roster');
@@ -149,7 +155,7 @@ export const AttendancePage: React.FC = () => {
   };
 
   // Toggle individual student status (mutually exclusive)
-  const setStudentStatus = (studentId: string, status: 'PRESENT' | 'ABSENT' | 'LATE') => {
+  const setStudentStatus = (studentId: string, status: 'PRESENT' | 'ABSENT') => {
     if (isSessionLocked) return;
     setWarningMsg(null);
     setRoster(prev =>
@@ -160,16 +166,11 @@ export const AttendancePage: React.FC = () => {
   // Save attendance (draft or committed submission)
   const handleSaveAttendance = async (submissionStatus: 'DRAFT' | 'SUBMITTED') => {
     if (!selectedSlot) return;
-    if (!selectedSlot.is_live) {
-      setWarningMsg('Attendance can only be marked during the live scheduled time for this lecture slot.');
-      return;
-    }
-
     const unmarked = roster.filter(r => r.status === 'UNMARKED');
 
     if (submissionStatus === 'SUBMITTED' && unmarked.length > 0) {
       setWarningMsg(
-        `Cannot commit attendance: ${unmarked.length} scholar(s) are still unmarked. All scholars must be marked Present, Absent, or Late before final submission.`
+        `Cannot commit attendance: ${unmarked.length} scholar(s) are still unmarked. All scholars must be marked Present, Absent, or Excused before final submission.`
       );
       return;
     }
@@ -301,9 +302,18 @@ export const AttendancePage: React.FC = () => {
                   type="date"
                   value={selectedDate}
                   onChange={e => setSelectedDate(e.target.value)}
+                  aria-label="Attendance date"
                   className="bg-transparent text-white font-semibold focus:outline-none cursor-pointer"
                 />
               </div>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(toIndiaDateInputValue())}
+                disabled={selectedDate === toIndiaDateInputValue()}
+                className="rounded-xl border border-slate-700/80 bg-[#19273c] px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-700 disabled:cursor-default disabled:opacity-50"
+              >
+                Today
+              </button>
 
               <button
                 onClick={() => loadAttendanceData()}
@@ -364,23 +374,23 @@ export const AttendancePage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
-                  Assigned Teaching Schedule ({todaySlots.length} Slots Available)
+                  Timetable Slots for Selected Day ({todaySlots.length} Available)
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Select a lecture to load the registered scholar cohort and record statutory attendance.
+                  Select any assigned slot to record attendance for the selected lecture date.
                 </p>
               </div>
               <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100">
-                {selectedDate}
+                {formatLocalDate(selectedDate)}
               </span>
             </div>
 
             {todaySlots.length === 0 ? (
               <div className="p-6 text-center text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                 <Clock className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-600">No scheduled lecture slots found for this date.</p>
+                <p className="text-sm font-semibold text-slate-600">No assigned timetable slots found.</p>
                 <p className="text-xs text-slate-400 mt-1">
-                  You can select another date from the picker above to mark or review lectures.
+                  Contact your administrator if you expected to see an assigned slot.
                 </p>
               </div>
             ) : (
@@ -394,9 +404,7 @@ export const AttendancePage: React.FC = () => {
                       className={`text-left p-3.5 rounded-xl border transition-all cursor-pointer relative overflow-hidden ${
                         isSelected
                           ? 'border-indigo-600 bg-indigo-50/70 shadow-sm ring-1 ring-indigo-500'
-                          : slot.is_live
-                            ? 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
-                            : 'border-slate-200 bg-slate-50/70 opacity-75'
+                          : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-1.5">
@@ -411,13 +419,9 @@ export const AttendancePage: React.FC = () => {
                           <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
                             Draft
                           </span>
-                        ) : slot.is_live ? (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
-                            Unrecorded
-                          </span>
                         ) : (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                            Outside live time
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                            Ready
                           </span>
                         )}
                       </div>
@@ -426,6 +430,7 @@ export const AttendancePage: React.FC = () => {
                       <p className="text-xs text-slate-500 mt-0.5 truncate">
                         {slot.class_name} • Div {slot.division_name}
                       </p>
+                      <p className="text-[11px] text-slate-400 mt-1">{slot.day_name}</p>
                       <p className="text-[11px] text-slate-400 mt-1">
                         {formatIndianTime(slot.start_time)} - {formatIndianTime(slot.end_time)} {slot.room_number ? `• ${slot.room_number}` : ''}
                       </p>
@@ -451,19 +456,13 @@ export const AttendancePage: React.FC = () => {
                       {unmarkedCount > 0 && ` • ${unmarkedCount} Unmarked`}
                     </span>
                     {isSessionLocked && (
-                      <span className={`px-2.5 py-0.5 rounded text-[10px] font-extrabold uppercase flex items-center gap-1 ${
-                        selectedSlot.is_live
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      }`}>
-                        <Lock className="w-3 h-3" /> {selectedSlot.is_live ? 'Session Verified & Locked' : 'Outside Live Time — Locked'}
+                      <span                       className="px-2.5 py-0.5 rounded text-[10px] font-extrabold uppercase flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <Lock className="w-3 h-3" /> Session Verified & Locked
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-slate-400">
-                    {selectedSlot.is_live
-                      ? 'Mark session statuses. Dynamic statutory compliance updates automatically.'
-                      : 'Attendance can only be marked during this lecture’s scheduled live time.'}
+                    Mark session statuses. Dynamic statutory compliance updates automatically.
                   </p>
                 </div>
 
@@ -515,7 +514,6 @@ export const AttendancePage: React.FC = () => {
                       const isShortage = (scholar.cumulative_attendance || 0) < 75;
                       const isPresent = scholar.status === 'PRESENT';
                       const isAbsent = scholar.status === 'ABSENT';
-                      const isLate = scholar.status === 'LATE';
 
                       return (
                         <tr
@@ -592,20 +590,6 @@ export const AttendancePage: React.FC = () => {
                               >
                                 {isAbsent && <X className="w-3 h-3 inline mr-1" />}
                                 Absent
-                              </button>
-
-                              {/* Late Pill */}
-                              <button
-                                type="button"
-                                disabled={isSessionLocked}
-                                onClick={() => setStudentStatus(scholar.student_id, 'LATE')}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                                  isLate
-                                    ? 'bg-amber-600 text-white shadow-sm'
-                                    : 'bg-[#1b2b46] text-slate-400 hover:text-white hover:bg-slate-700/60'
-                                } ${isSessionLocked ? 'opacity-80 cursor-default' : ''}`}
-                              >
-                                Late
                               </button>
 
                               {/* Correction button if locked */}
@@ -954,7 +938,6 @@ export const AttendancePage: React.FC = () => {
                 >
                   <option value="PRESENT">PRESENT</option>
                   <option value="ABSENT">ABSENT</option>
-                  <option value="LATE">LATE</option>
                 </select>
               </div>
 

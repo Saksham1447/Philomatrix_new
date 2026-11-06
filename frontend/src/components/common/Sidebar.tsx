@@ -51,7 +51,7 @@ export const Sidebar: React.FC = () => {
       label: 'Examinations & Marks',
       path: '/examinations',
       icon: Award,
-      roles: ['PRINCIPAL', 'FACULTY', 'STUDENT', 'PARENT']
+      roles: ['PRINCIPAL', 'OFFICE_STAFF', 'FACULTY', 'STUDENT', 'PARENT']
     },
     {
       label: 'Official Report Cards',
@@ -60,7 +60,7 @@ export const Sidebar: React.FC = () => {
       roles: ['PRINCIPAL', 'FACULTY', 'STUDENT', 'PARENT']
     },
     {
-      label: 'Student Directory',
+      label: 'Students Registry',
       path: '/students',
       icon: Users,
       roles: ['PRINCIPAL', 'OFFICE_STAFF', 'FACULTY']

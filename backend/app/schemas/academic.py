@@ -59,6 +59,11 @@ class ClassResponse(BaseModel):
         from_attributes = True
 
 
+class ClassSubjectsUpdate(BaseModel):
+    academic_year_id: str
+    subject_ids: List[str]
+
+
 class SubjectCreate(BaseModel):
     code: str
     name: str
@@ -133,6 +138,7 @@ class FacultyAssignmentResponse(BaseModel):
     subject_id: str
     subject_name: str
     subject_code: str
+    class_id: Optional[str] = None
     division_id: str
     division_name: str
     class_name: str

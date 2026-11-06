@@ -41,6 +41,11 @@ def _prefix() -> str:
     return prefix
 
 
+def _tenant_collections_database() -> str:
+    name = settings.MONGODB_TENANT_COLLECTIONS_DB or _prefix()
+    return _validate_database_name(name)
+
+
 def _validate_database_name(name: str) -> str:
     # Never interpret a stored legacy PostgreSQL URL or a Mongo URI as a database name.
     if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,38}", name):
@@ -67,14 +72,30 @@ def get_control_store() -> DocStore:
 
 
 def get_tenant_store(name: str | None) -> DocStore:
-    """Return a college-prefixed store in the shared Mongo database."""
+    """Return the configured college collection namespace, with legacy fallbacks."""
     if not name:
         return get_control_store()
-    return _store_for_name(_prefix(), name)
+    name = _validate_database_name(name)
+    client = get_mongo_client()
+    legacy_prefix = f"{name}__"
+    tenant_database = client[_tenant_collections_database()]
+    if any(
+        collection.startswith(legacy_prefix)
+        for collection in tenant_database.list_collection_names()
+    ):
+        return _store_for_name(tenant_database.name, name)
+    if client[name].list_collection_names():
+        return _store_for_name(name)
+    if any(
+        collection.startswith(legacy_prefix)
+        for collection in client[_prefix()].list_collection_names()
+    ):
+        return _store_for_name(_prefix(), name)
+    return _store_for_name(name)
 
 
 def ensure_indexes(store: DocStore) -> None:
-    """Create all 39 same-named collections and declared indexes idempotently."""
+    """Create all same-named collections and declared indexes idempotently."""
     with _cache_lock:
         key = (store.name, store.collection_prefix)
         if key in _indexed_databases:
@@ -90,6 +111,10 @@ def ensure_indexes(store: DocStore) -> None:
                     if physical_name not in store._database.list_collection_names():
                         raise
             collection = store._database[physical_name]
+            if name == "exam_subjects":
+                legacy_indexes = collection.index_information()
+                if "uq_exam_subject_class" in legacy_indexes:
+                    collection.drop_index("uq_exam_subject_class")
             if name == "timetable_slots":
                 legacy_indexes = collection.index_information()
                 if "uq_slot_class_day_period" in legacy_indexes:
@@ -169,15 +194,32 @@ def provision_tenant_database(institution, principal_email: str | None = None,
                               principal_first_name: str = "Institution",
                               principal_middle_name: str | None = None,
                               principal_last_name: str = "Principal") -> str:
-    """Create and bootstrap an isolated college namespace in the shared database."""
+    """Create and bootstrap an isolated college collection namespace."""
     name = _safe_tenant_db_name(institution)
     client = get_mongo_client()
     shared_db = client[_prefix()]
-    if any(collection.startswith(f"{name}__") for collection in shared_db.list_collection_names()):
+    tenant_database_name = _tenant_collections_database()
+    tenant_database = client[tenant_database_name]
+    shared_collections = shared_db.list_collection_names()
+    if (
+        client[name].list_collection_names()
+        or any(collection.startswith(f"{name}__") for collection in tenant_database.list_collection_names())
+        or (
+            tenant_database_name == shared_db.name
+            and any(collection.startswith(f"{name}__") for collection in shared_collections)
+        )
+    ):
         name = _safe_tenant_db_name(institution, force_suffix=True)
+    if (
+        name == _prefix()
+        or name == tenant_database_name
+        or client[name].list_collection_names()
+        or any(collection.startswith(f"{name}__") for collection in tenant_database.list_collection_names())
+    ):
+        raise ValueError("A database or legacy tenant namespace already exists for this institution")
     clear_cached_institution(_read(institution, "id", ""))
     try:
-        store = get_tenant_store(name)
+        store = _store_for_name(tenant_database_name, name)
         store.insert("institutions", _institution_data(institution, name))
         store.insert("institution_settings", {
             "institution_id": str(_read(institution, "id")),
@@ -209,12 +251,12 @@ def provision_tenant_database(institution, principal_email: str | None = None,
             })
         return name
     except Exception:
-        for collection in shared_db.list_collection_names():
+        for collection in tenant_database.list_collection_names():
             if collection.startswith(f"{name}__"):
-                shared_db.drop_collection(collection)
+                tenant_database.drop_collection(collection)
         with _cache_lock:
-            _tenant_stores.pop((_prefix(), name), None)
-            _indexed_databases.discard((_prefix(), name))
+            _tenant_stores.pop((tenant_database_name, name), None)
+            _indexed_databases.discard((tenant_database_name, name))
         raise
 
 

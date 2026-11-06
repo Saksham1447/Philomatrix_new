@@ -9,17 +9,18 @@ by MongoDB indexes, and reference validation plus configured delete cascades are
 handled by the application. Decimal, date, time, and JSON values are converted
 through the shared document codec.
 
-The main database is named `<prefix>` (default `philomatrix`). It holds the
-platform-level collections plus college-isolated collections. Platform records
-such as the institution registry, platform roles, and super-admin accounts use
-the unprefixed logical collection names. Each college uses physical collections
-prefixed with its normalized college name, for example
+The control database is named `<prefix>` (default `philomatrix`). It holds the
+platform-level collections, including the institution registry, platform roles,
+and super-admin accounts. The tenant-data database is configured with
+`MONGODB_TENANT_COLLECTIONS_DB` (for example `Philomatrix_ERP`). Each college's
+ordinary logical collections are stored there with its normalized college name
+as a prefix, for example
 `Chate_Junior_College_Science_Kolhapur__users` and
-`Chate_Junior_College_Science_Kolhapur__students`. The route-facing logical
-names remain `users`, `students`, and so on, so application features and API
-contracts do not change. The registry entry's `database_url` field stores the
-college collection namespace for backward compatibility; it is not a connection
-URI or a database name.
+`Chate_Junior_College_Science_Kolhapur__students`. MongoDB does not provide
+folders or nested databases. The route-facing collection names and API
+contracts remain unchanged. The registry entry's `database_url` field stores
+the college namespace used as the collection prefix; it is not a connection
+URI or a MongoDB database name.
 Application writes use MongoDB transactions on Atlas replica sets.
 
 ---
@@ -37,8 +38,11 @@ erDiagram
     academic_years ||--o{ enrollments : "scopes"
     academic_years ||--o{ timetable_versions : "schedules"
     academic_years ||--o{ examinations : "holds"
+    academic_years ||--o{ class_subjects : "scopes"
     
     classes ||--o{ divisions : "contains"
+    classes ||--o{ class_subjects : "curriculum"
+    subjects ||--o{ class_subjects : "included_in"
     classes ||--o{ enrollments : "classifies"
     divisions ||--o{ enrollments : "allocates"
     
@@ -198,6 +202,15 @@ erDiagram
 - `min_pass_percentage` (NUMERIC(5,2), default 35.00)
 - UNIQUE: `(institution_id, code)`
 
+#### `class_subjects`
+- `id` (UUID, Primary Key)
+- `institution_id` (UUID, FOREIGN KEY -> institutions.id, ON DELETE CASCADE)
+- `academic_year_id` (UUID, FOREIGN KEY -> academic_years.id, ON DELETE CASCADE)
+- `class_id` (UUID, FOREIGN KEY -> classes.id, ON DELETE CASCADE)
+- `subject_id` (UUID, FOREIGN KEY -> subjects.id, ON DELETE CASCADE)
+- UNIQUE: `(academic_year_id, class_id, subject_id)`
+- Each class curriculum is shared by its divisions for the selected academic year.
+
 ---
 
 ### 2.4 Faculty & Subject Workload Allocations
@@ -241,6 +254,7 @@ erDiagram
 - `emergency_contact_name` (VARCHAR(100))
 - `emergency_contact_phone` (VARCHAR(30))
 - `status` (VARCHAR(20), default 'ACTIVE') — 'ACTIVE', 'INACTIVE', 'TRANSFERRED', 'GRADUATED'
+- `fee_status` (VARCHAR(20), default 'PENDING') — 'PAID', 'PENDING', 'OVERDUE'; status only, without fee accounting
 - UNIQUE: `(institution_id, admission_number)`
 
 #### `guardians`
@@ -368,11 +382,15 @@ Slot template per department/class. Once a class has slots, lectures for its div
 - `examination_id` (UUID, FOREIGN KEY -> examinations.id, ON DELETE CASCADE)
 - `subject_id` (UUID, FOREIGN KEY -> subjects.id, ON DELETE CASCADE)
 - `class_id` (UUID, FOREIGN KEY -> classes.id, ON DELETE CASCADE)
+- `division_id` (UUID, FOREIGN KEY -> divisions.id, nullable for legacy schedules)
+- `faculty_id` (UUID, FOREIGN KEY -> faculty_profiles.id, nullable for legacy schedules)
 - `max_theory_marks` (NUMERIC(5,2), NOT NULL)
 - `max_practical_marks` (NUMERIC(5,2), default 0.00)
 - `min_passing_marks` (NUMERIC(5,2), NOT NULL)
-- `exam_date` (DATE)
-- UNIQUE: `(examination_id, subject_id, class_id)`
+- `exam_date` (DATE, required for new schedules)
+- `start_time` (TIME, required for new schedules)
+- `end_time` (TIME, required for new schedules and later than `start_time`)
+- UNIQUE: `(examination_id, subject_id, class_id, division_id)`
 
 #### `marks_entries`
 - `id` (UUID, Primary Key)

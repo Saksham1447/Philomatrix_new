@@ -28,15 +28,6 @@ def _india_now() -> datetime:
     return datetime.now(INDIA_TZ)
 
 
-def _is_live_slot(check_date: date, start_time, end_time) -> bool:
-    now = _india_now()
-    if check_date != now.date():
-        return False
-    start = datetime.combine(check_date, start_time, tzinfo=INDIA_TZ)
-    end = datetime.combine(check_date, end_time, tzinfo=INDIA_TZ)
-    return start <= now < end
-
-
 def _roll_sort_key(student):
     """Roll number asc (NULLs last), then admission number asc."""
     return (student.roll_number is None, student.roll_number or "", student.admission_number or "")
@@ -45,10 +36,11 @@ def _roll_sort_key(student):
 @router.get("/today-slots", response_model=List[dict])
 def get_today_assigned_slots(
     target_date: Optional[date] = None,
+    include_all_slots: bool = False,
     current_user: UserDoc = Depends(get_current_user),
     db: DocStore = Depends(get_db)
 ):
-    """[FACULTY] Get assigned timetable slots with attendance submission status, supporting weekend fallback."""
+    """[FACULTY] Get assigned timetable slots with attendance status for a date."""
     if not current_user.faculty_profile:
         raise HTTPException(status_code=403, detail="Only faculty can view assigned lecture slots")
 
@@ -56,7 +48,16 @@ def get_today_assigned_slots(
     day_num = check_date.weekday() + 1
 
     entries = []
-    if day_num <= 6:
+    if include_all_slots:
+        entries = db.find(
+            "timetable_entries",
+            {
+                "institution_id": current_user.institution_id,
+                "faculty_id": current_user.faculty_profile.id,
+            },
+            sort=[("day_of_week", 1), ("period_number", 1)],
+        )
+    elif day_num <= 6:
         entries = db.find(
             "timetable_entries",
             {
@@ -68,7 +69,7 @@ def get_today_assigned_slots(
         )
 
     is_fallback = False
-    if not entries:
+    if not entries and not include_all_slots:
         # Fallback to all assigned timetable slots for this faculty across the week
         entries = db.find(
             "timetable_entries",
@@ -113,7 +114,6 @@ def get_today_assigned_slots(
             "submission_status": existing_session.submission_status if existing_session else None,
             "session_id": existing_session.id if existing_session else None,
             "is_fallback": is_fallback,
-            "is_live": _is_live_slot(check_date, e.start_time, e.end_time),
         })
     return slots
 
@@ -129,18 +129,17 @@ def get_attendance_roster(
 ):
     """Get enrolled student roster for a division with cumulative attendance % and statutory status."""
     if current_user.faculty_profile and session_date and subject_id and period_number:
-        live_entry = db.find_one("timetable_entries", {
+        assigned_entry = db.find_one("timetable_entries", {
             "institution_id": current_user.institution_id,
             "faculty_id": current_user.faculty_profile.id,
             "division_id": division_id,
             "subject_id": subject_id,
-            "day_of_week": session_date.weekday() + 1,
             "period_number": period_number,
         })
-        if not live_entry or not _is_live_slot(session_date, live_entry.start_time, live_entry.end_time):
+        if not assigned_entry:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="Attendance roster is available only during the live scheduled timetable slot",
+                detail="No timetable slot is assigned to you for this lecture",
             )
 
     enrollments = db.find("enrollments", {"division_id": division_id})
@@ -238,31 +237,21 @@ def submit_attendance(
             detail="Security Violation: You are not assigned to instruct this subject in this division"
         )
 
-    if not assigned or not assigned_is_timetable_entry:
+    if not assigned_is_timetable_entry:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Attendance can only be marked during the live scheduled timetable slot",
-        )
-
-    if not _is_live_slot(request.session_date, assigned.start_time, assigned.end_time):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Attendance is available only during the live slot "
-                f"{assigned.start_time.strftime('%I:%M %p')} - {assigned.end_time.strftime('%I:%M %p')} "
-                "on the scheduled date"
-            ),
+            detail="Attendance can only be marked for an assigned timetable slot",
         )
 
     desired_status = (request.submission_status or "SUBMITTED").upper()
 
     # If submitting final attendance, prevent unmarked students
     if desired_status == "SUBMITTED":
-        unmarked = [r for r in request.records if r.status not in ["PRESENT", "ABSENT", "LATE", "EXCUSED"]]
+        unmarked = [r for r in request.records if r.status not in ["PRESENT", "ABSENT", "EXCUSED"]]
         if unmarked:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot submit attendance session with {len(unmarked)} unmarked scholar(s). All scholars must be marked Present, Absent, or Late."
+                detail=f"Cannot submit attendance session with {len(unmarked)} unmarked scholar(s). All scholars must be marked Present, Absent, or Excused."
             )
 
     # Check existing session

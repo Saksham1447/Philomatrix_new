@@ -34,6 +34,159 @@ def class_11_and_division(headers: dict) -> tuple[dict, dict]:
     return class_11, next(item for item in class_11["divisions"] if item["name"] == "A")
 
 
+def test_student_search_matches_roll_number():
+    office = auth(*OFFICE)
+    students = client.get("/api/v1/students", headers=office).json()
+    student = next(item for item in students if item.get("roll_number"))
+
+    result = client.get(
+        "/api/v1/students",
+        params={"search": student["roll_number"]},
+        headers=office,
+    )
+
+    assert result.status_code == 200
+    assert student["id"] in {item["id"] for item in result.json()}
+
+
+def test_office_and_principal_can_update_student_fee_status_but_faculty_cannot():
+    office = auth(*OFFICE)
+    student = client.get("/api/v1/students", headers=office).json()[0]
+
+    updated = client.put(
+        f"/api/v1/students/{student['id']}/fee-status",
+        json={"fee_status": "OVERDUE"},
+        headers=office,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["fee_status"] == "OVERDUE"
+    persisted = next(
+        item for item in client.get("/api/v1/students", headers=office).json()
+        if item["id"] == student["id"]
+    )
+    assert persisted["fee_status"] == "OVERDUE"
+    assert client.put(
+        f"/api/v1/students/{student['id']}/fee-status",
+        json={"fee_status": "UNKNOWN"},
+        headers=office,
+    ).status_code == 422
+    assert client.put(
+        f"/api/v1/students/{student['id']}/fee-status",
+        json={"fee_status": "PAID"},
+        headers=auth(*FACULTY),
+    ).status_code == 403
+    principal_update = client.put(
+        f"/api/v1/students/{student['id']}/fee-status",
+        json={"fee_status": "PAID"},
+        headers=auth(*PRINCIPAL),
+    )
+    assert principal_update.status_code == 200, principal_update.text
+    assert principal_update.json()["fee_status"] == "PAID"
+
+
+def test_exam_scheduling_and_marks_are_scoped_to_teacher_subject_division():
+    office = auth(*OFFICE)
+    assignments = client.get("/api/v1/faculty/assignments", headers=office).json()
+    physics = next(assignment for assignment in assignments if assignment["subject_name"] == "Physics")
+    math = next(
+        member for member in client.get("/api/v1/faculty", headers=office).json()
+        if member["email"] == "math.prof@royalscience.edu"
+    )
+    classes = client.get("/api/v1/academics/classes", headers=office).json()
+    class_doc = next(item for item in classes if item["id"] == next(
+        division["class_id"] for cls in classes for division in cls["divisions"]
+        if division["id"] == physics["division_id"]
+    ))
+    exam_payload = {
+        "academic_year_id": physics["academic_year_id"],
+        "name": "Division Assessment",
+        "exam_type": "UNIT_TEST",
+        "start_date": "2026-10-10",
+        "end_date": "2026-10-10",
+        "subjects": [{
+            "subject_id": physics["subject_id"],
+            "class_id": class_doc["id"],
+            "division_id": physics["division_id"],
+            "faculty_id": physics["faculty_id"],
+            "max_theory_marks": 70,
+            "max_practical_marks": 30,
+            "min_passing_marks": 35,
+            "exam_date": "2026-10-10",
+            "start_time": "09:30",
+            "end_time": "10:30",
+        }],
+    }
+    created = client.post("/api/v1/examinations", json=exam_payload, headers=office)
+    assert created.status_code == 201, created.text
+    subject = created.json()["subjects"][0]
+    assert subject["division_id"] == physics["division_id"]
+    assert subject["faculty_id"] == physics["faculty_id"]
+    assert subject["faculty_name"] == physics["faculty_name"]
+    assert subject["start_time"] == "09:30:00"
+    assert subject["end_time"] == "10:30:00"
+
+    updated_payload = {
+        **exam_payload,
+        "name": "Updated Division Assessment",
+        "subjects": [{
+            **exam_payload["subjects"][0],
+            "exam_date": "2026-10-11",
+            "start_time": "11:00",
+            "end_time": "12:00",
+        }],
+        "start_date": "2026-10-10",
+        "end_date": "2026-10-11",
+    }
+    updated_exam = client.put(
+        f"/api/v1/examinations/{created.json()['id']}",
+        json=updated_payload,
+        headers=office,
+    )
+    assert updated_exam.status_code == 200, updated_exam.text
+    subject = updated_exam.json()["subjects"][0]
+    assert subject["exam_date"] == "2026-10-11"
+    assert subject["start_time"] == "11:00:00"
+    assert subject["end_time"] == "12:00:00"
+
+    mismatched = {**exam_payload, "name": "Invalid Assignment", "subjects": [{
+        **exam_payload["subjects"][0],
+        "faculty_id": math["id"],
+    }]}
+    assert client.post("/api/v1/examinations", json=mismatched, headers=office).status_code == 400
+
+    physics_token = auth(*FACULTY)
+    roster = client.get(
+        "/api/v1/examinations/marks/roster",
+        params={"exam_subject_id": subject["id"], "division_id": physics["division_id"]},
+        headers=physics_token,
+    )
+    assert roster.status_code == 200, roster.text
+    student_in_division = roster.json()[0]
+    saved = client.post(
+        "/api/v1/examinations/marks/save-draft",
+        json={
+            "exam_subject_id": subject["id"],
+            "division_id": physics["division_id"],
+            "entries": [{"student_id": student_in_division["student_id"], "theory_marks_obtained": 60}],
+            "submit_for_approval": False,
+        },
+        headers=physics_token,
+    )
+    assert saved.status_code == 200, saved.text
+    assert client.delete(
+        f"/api/v1/examinations/{created.json()['id']}",
+        headers=office,
+    ).status_code == 409
+
+    math_token = auth("math.prof@royalscience.edu", "Faculty@Pass2026")
+    forbidden = client.get(
+        "/api/v1/examinations/marks/roster",
+        params={"exam_subject_id": subject["id"], "division_id": physics["division_id"]},
+        headers=math_token,
+    )
+    assert forbidden.status_code == 403
+
+
 def test_office_staff_can_add_but_not_change_students_faculty_or_academic_structure():
     office = auth(*OFFICE)
 
@@ -98,6 +251,35 @@ def test_slot_template_drives_how_faculty_build_their_timetable():
     )
     assert reserved.status_code == 201, reserved.text
 
+    reserved_slot_id = reserved.json()[0]["id"]
+    misconfigured = client.put(
+        f"/api/v1/timetable/slots/{reserved_slot_id}",
+        json={"end_time": "23:00:00"},
+        headers=principal,
+    )
+    assert misconfigured.status_code == 200, misconfigured.text
+    after_break = {
+        **slot,
+        "period_number": 3,
+        "start_time": "11:10:00",
+        "end_time": "12:10:00",
+    }
+    overlap = client.post("/api/v1/timetable/slots", json=after_break, headers=office)
+    assert overlap.status_code == 409
+    assert overlap.json()["detail"] == (
+        "Time overlaps period 2 (10:00 AM–11:00 PM) on Wednesday. "
+        "Adjust that period or choose a non-overlapping time."
+    )
+
+    corrected = client.put(
+        f"/api/v1/timetable/slots/{reserved_slot_id}",
+        json={"end_time": "11:00:00"},
+        headers=office,
+    )
+    assert corrected.status_code == 200, corrected.text
+    created_after_break = client.post("/api/v1/timetable/slots", json=after_break, headers=office)
+    assert created_after_break.status_code == 201, created_after_break.text
+
     # Duplicate period and overlapping times are rejected.
     assert client.post("/api/v1/timetable/slots", json=slot, headers=principal).status_code == 409
     overlap = {**slot, "period_number": 3, "start_time": "09:30:00", "end_time": "10:30:00"}
@@ -146,6 +328,10 @@ def test_slot_template_drives_how_faculty_build_their_timetable():
 
     free_slot_id = reserved.json()[0]["id"]
     assert client.delete(f"/api/v1/timetable/slots/{free_slot_id}", headers=office).status_code == 200
+    assert client.delete(
+        f"/api/v1/timetable/slots/{created_after_break.json()[0]['id']}",
+        headers=principal,
+    ).status_code == 200
 
     office_slot = {
         "division_id": division_a["id"], "days_of_week": [3], "period_number": 3,
@@ -296,3 +482,38 @@ def test_existing_institute_gets_missing_standard_subjects_without_duplicates(is
     names = [item["name"] for item in client.get("/api/v1/academics/subjects", headers=auth(*PRINCIPAL)).json()]
     assert {"Marathi", "Hindi", "Environmental Education", "Information Technology"} <= set(names)
     assert names.count("Physics") == 1
+
+
+def test_office_staff_can_set_class_curriculum_and_update_division_teacher():
+    office = auth(*OFFICE)
+    class_11, _ = class_11_and_division(office)
+    years = client.get("/api/v1/academics/years", headers=office).json()
+    year = next(item for item in years if item["is_current"])
+    subjects = client.get("/api/v1/academics/subjects", headers=office).json()
+    assignments = client.get("/api/v1/faculty/assignments", headers=office).json()
+    assignment = next(
+        item for item in assignments
+        if item["class_id"] == class_11["id"] and item["academic_year_id"] == year["id"]
+    )
+
+    saved = client.put(
+        f"/api/v1/academics/classes/{class_11['id']}/subjects",
+        json={"academic_year_id": year["id"], "subject_ids": [item["id"] for item in subjects]},
+        headers=office,
+    )
+    assert saved.status_code == 200, saved.text
+    assert {item["id"] for item in saved.json()} == {item["id"] for item in subjects}
+
+    updated = client.put(
+        f"/api/v1/faculty/assignments/{assignment['id']}",
+        json={
+            "academic_year_id": year["id"],
+            "faculty_id": assignment["faculty_id"],
+            "subject_id": assignment["subject_id"],
+            "division_id": assignment["division_id"],
+            "is_class_teacher": assignment["is_class_teacher"],
+        },
+        headers=office,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["faculty_id"] == assignment["faculty_id"]

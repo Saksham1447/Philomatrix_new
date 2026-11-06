@@ -159,13 +159,14 @@ def _document_for_target(
     return BSON(BSON.encode(document)).decode(codec_options=codec_options)
 
 
+def _plan_store(plan: SourcePlan, control_target: str, client) -> DocStore:
+    database_name = plan.target_name if plan.tenant_id else control_target
+    return DocStore(client[database_name], client=client)
+
+
 def _preflight(plans: list[SourcePlan], tenant_targets: dict[str, str], control_target: str, client) -> None:
     for plan in plans:
-        store = DocStore(
-            client[control_target],
-            client=client,
-            collection_prefix=None if not plan.tenant_id else plan.target_name,
-        )
+        store = _plan_store(plan, control_target, client)
         ensure_indexes(store)
         tables = _tables_in_plan(plan)
         for collection, table in tables.items():
@@ -191,11 +192,7 @@ def _copy(
 ) -> None:
     control_target = control_target or plans[0].target_name
     for plan in plans:
-        store = DocStore(
-            client[control_target],
-            client=client,
-            collection_prefix=None if not plan.tenant_id else plan.target_name,
-        )
+        store = _plan_store(plan, control_target, client)
         ensure_indexes(store)
         tables = _tables_in_plan(plan)
         for collection, table in tables.items():

@@ -1,5 +1,5 @@
 from datetime import date
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, EmailStr
 
 
@@ -75,6 +75,7 @@ class StudentResponse(BaseModel):
     admission_date: date
     address: Optional[str] = None
     status: str
+    fee_status: Literal["PAID", "PENDING", "OVERDUE"] = "PENDING"
     class_name: Optional[str] = None
     division_name: Optional[str] = None
     division_id: Optional[str] = None
@@ -88,3 +89,7 @@ class StudentResponse(BaseModel):
 class LinkGuardianRequest(BaseModel):
     guardian_id: str
     is_primary: bool = True
+
+
+class StudentFeeStatusUpdate(BaseModel):
+    fee_status: Literal["PAID", "PENDING", "OVERDUE"]

@@ -10,11 +10,11 @@
 - **Multi-Tenant SaaS Architecture:** Logical row-level tenant isolation by `institution_id` on all models and queries.
 - **6 Role-Based Portals:**
   1. **SaaS Super Administrator:** Platform tenant provisioning, lifecycle control, and system health.
-  2. **Institution Admin / Principal:** Full operational oversight, approvals, timetable configuration, marks moderation, and report card publishing.
+  2. **Institution Admin / Principal:** Full operational oversight, approvals, timetable configuration, examination scheduling, marks moderation, and report card publishing.
   3. **Faculty / Lecturer:** Period-wise lecture attendance, marks entry (Draft & Submit), and homework assignments.
   4. **Student:** Personal timetable, lecture attendance percentage, published examination marks, and official report cards.
   5. **Parent / Guardian:** Multi-child switcher, real-time attendance alerts (< 75% threshold), and certified report cards.
-  6. **Office / Admissions Staff:** Admissions, student directory, and guardian relationship verification.
+  6. **Office / Admissions Staff:** Admissions, student registry and fee-status updates, class-wide subject setup, division-specific teacher assignments, examination scheduling, and guardian relationship verification.
 - **Conflict-Aware Timetable Engine:** Real-time overlap prevention for faculty, student divisions, and physical lecture halls.
 - **Lecture-Wise Attendance System:** Instant calculation of $\frac{\text{Attended Eligible Lectures}}{\text{Total Conducted Lectures}} \times 100$ with late and excused leave policies.
 - **Marks Moderation & Result Publication:** Faculty draft/submit workflows, Principal review/approval/rejection, and immutable publication locks.
@@ -36,11 +36,11 @@
 
 ### Tenant database model
 
-The `philomatrix` database stores platform records and the institute directory. When a Super Admin provisions a new institute from **Institute Workspaces**, PHILOMATRIX creates isolated, college-prefixed collections for that institution and bootstraps its principal account and roles there. Login requires selecting an active institute first; subsequent API requests carry the selected institution context and are routed to that college namespace. The logical Mongo collections retain the names of the former relational tables, and references retain their existing string IDs.
+The `philomatrix` database stores platform records and the institute directory. Set `MONGODB_TENANT_COLLECTIONS_DB` to a shared tenant-data database such as `Philomatrix_ERP`; each college's normal collections are stored there with a readable college-name prefix (for example, `Chate_Junior_College_Science_Kolhapur__students`). Login requires selecting an active institute first; subsequent API requests carry the selected institution context and are routed to that college's collection namespace. The logical Mongo collection names and API contracts remain unchanged, and references retain their existing string IDs.
 
 ### MongoDB Atlas configuration and legacy data migration
 
-Create a MongoDB Atlas database user, allow your application's network access in Atlas, and place the Atlas URI in the ignored `backend/.env` file. Use `backend/.env.example` as a variable-name template. The application uses `MONGODB_URI` and `MONGODB_DB_PREFIX`; it does not use `DATABASE_URL` for runtime storage.
+Create a MongoDB Atlas database user, allow your application's network access in Atlas, and place the Atlas URI in the ignored `backend/.env` file. Use `backend/.env.example` as a variable-name template. The application uses `MONGODB_URI` and `MONGODB_DB_PREFIX` for its control database; `MONGODB_TENANT_COLLECTIONS_DB` optionally selects the shared college-data database. It does not use `DATABASE_URL` for runtime storage.
 
 The migration utility reads a legacy SQLite or PostgreSQL source from `LEGACY_DATABASE_URL`. Set it locally only after rotating any credentials that have been exposed. Keep both connection strings out of chat and source control. From `backend`, first inspect the source without writing:
 
@@ -54,7 +54,16 @@ After reviewing source counts and confirming the legacy source (including any in
 python migrate_to_mongodb.py --apply
 ```
 
-The default run is read-only. `--apply` preserves record IDs and refuses to overwrite a conflicting MongoDB document. The utility copies platform tables to the main database and tenant tables to college-prefixed collections, then verifies each source collection's records. It does not delete or modify the legacy database. Back up both systems before migration.
+The default run is read-only. `--apply` preserves record IDs and refuses to overwrite a conflicting MongoDB document. The utility copies platform tables to the main database and tenant tables to isolated college namespaces, then verifies each source collection's records. It does not delete or modify the legacy database. Back up both systems before migration.
+
+To move an existing college from its own database into college-prefixed collections in the configured tenant-data database, first inspect the proposed copy and then apply it:
+
+```powershell
+python migrate_tenant_to_collections.py --institution-code KO11142SFE
+python migrate_tenant_to_collections.py --institution-code KO11142SFE --apply
+```
+
+The migration verifies the college identity, every document, and every collection count before application routing uses the new collection namespace. The original database and any older prefixed collections remain in place as rollback sources; remove them only after a separately reviewed backup and cutover.
 
 Each institute can select its type (School, Junior College, Degree College, Engineering College, or Other) and configure neutral labels such as **Academic unit**, **Educator**, **Learner**, and **Head role** from Settings. Academic units accept any name or category, including `Class 5`, `Class 11 Science`, `Computer Engineering`, `B.Sc. Physics`, or a custom course structure.
 
@@ -70,7 +79,7 @@ cd backend
 # 2. Activate virtual environment (Windows PowerShell)
 .\.venv\Scripts\Activate.ps1
 
-# 3. Configure backend/.env with MONGODB_URI and MONGODB_DB_PREFIX
+# 3. Configure backend/.env with MongoDB URI, control DB, and optional tenant-data DB
 
 # 4. Seed development data (test accounts, sample timetable, attendance & exams)
 python -m app.seeds.seed_demo

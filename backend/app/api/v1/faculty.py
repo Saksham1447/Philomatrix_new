@@ -55,6 +55,7 @@ def _assignment_responses(db: DocStore, assignments) -> List[FacultyAssignmentRe
                 subject_id=a.subject_id,
                 subject_name=subject.name,
                 subject_code=subject.code,
+                class_id=division.class_id,
                 division_id=a.division_id,
                 division_name=division.name,
                 class_name=classes[division.class_id].name,
@@ -216,22 +217,25 @@ def list_assignments(
 @router.post("/assignments", response_model=FacultyAssignmentResponse, status_code=status.HTTP_201_CREATED)
 def assign_faculty_subject(
     request: FacultyAssignmentCreate,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
     db: DocStore = Depends(get_db)
 ):
     """[PRINCIPAL] Assign a teacher to a subject and division."""
     existing = db.find_one(
         "faculty_subject_assignments",
         {
+            "institution_id": current_user.institution_id,
             "academic_year_id": request.academic_year_id,
-            "faculty_id": request.faculty_id,
             "subject_id": request.subject_id,
             "division_id": request.division_id,
         },
     )
     if existing:
-        raise HTTPException(status_code=400, detail="Assignment already exists for this teacher, subject, and division")
+        if existing.faculty_id == request.faculty_id:
+            raise HTTPException(status_code=400, detail="This teacher is already assigned to this subject and division")
+        raise HTTPException(status_code=409, detail="A different teacher is already assigned to this subject and division")
 
+    _validate_assignment_scope(request, current_user, db)
     assignment = db.insert("faculty_subject_assignments", {
         "institution_id": current_user.institution_id,
         "academic_year_id": request.academic_year_id,
@@ -242,3 +246,88 @@ def assign_faculty_subject(
     })
 
     return _assignment_responses(db, [assignment])[0]
+
+
+def _validate_assignment_scope(request: FacultyAssignmentCreate, current_user: UserDoc, db: DocStore):
+    year = db.find_one("academic_years", {
+        "id": request.academic_year_id,
+        "institution_id": current_user.institution_id,
+    })
+    teacher = db.find_one("faculty_profiles", {
+        "id": request.faculty_id,
+        "institution_id": current_user.institution_id,
+    })
+    subject = db.find_one("subjects", {
+        "id": request.subject_id,
+        "institution_id": current_user.institution_id,
+    })
+    division = db.find_one("divisions", {
+        "id": request.division_id,
+        "institution_id": current_user.institution_id,
+    })
+    if not year or not teacher or not subject or not division:
+        raise HTTPException(status_code=400, detail="Choose a valid academic year, teacher, subject, and division")
+    curriculum = db.find_one("class_subjects", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "class_id": division.class_id,
+        "subject_id": request.subject_id,
+    })
+    has_class_curriculum = db.count("class_subjects", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "class_id": division.class_id,
+    })
+    if has_class_curriculum and not curriculum:
+        raise HTTPException(status_code=400, detail="Add this subject to the class curriculum before assigning a teacher")
+
+
+@router.put("/assignments/{id}", response_model=FacultyAssignmentResponse)
+def update_faculty_assignment(
+    id: str,
+    request: FacultyAssignmentCreate,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db),
+):
+    assignment = db.find_one("faculty_subject_assignments", {
+        "id": id,
+        "institution_id": current_user.institution_id,
+    })
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Faculty assignment not found")
+    _validate_assignment_scope(request, current_user, db)
+    conflicting = db.find_one("faculty_subject_assignments", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "subject_id": request.subject_id,
+        "division_id": request.division_id,
+        "id": {"$ne": id},
+    })
+    if conflicting:
+        if conflicting.faculty_id == request.faculty_id:
+            raise HTTPException(status_code=409, detail="This teacher is already assigned in this division")
+        raise HTTPException(status_code=409, detail="A different teacher is already assigned to this subject and division")
+    updated = db.update(assignment, {
+        "academic_year_id": request.academic_year_id,
+        "faculty_id": request.faculty_id,
+        "subject_id": request.subject_id,
+        "division_id": request.division_id,
+        "is_class_teacher": request.is_class_teacher,
+    })
+    return _assignment_responses(db, [updated])[0]
+
+
+@router.delete("/assignments/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_faculty_assignment(
+    id: str,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db),
+):
+    assignment = db.find_one("faculty_subject_assignments", {
+        "id": id,
+        "institution_id": current_user.institution_id,
+    })
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Faculty assignment not found")
+    db.delete("faculty_subject_assignments", assignment)
+    return None

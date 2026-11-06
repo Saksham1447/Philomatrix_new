@@ -291,9 +291,11 @@ def test_institute_database_is_named_after_the_college():
     assert _safe_tenant_db_name({"id": "inst-3", "name": "Admin"}) != "Admin"
 
 
-def test_provisioned_institutes_get_college_prefixed_collections_in_main_database(store):
+def test_provisioned_institutes_get_college_prefixed_collections_in_configured_database(store, monkeypatch):
+    from app.core.config import settings
     from app.core.database import provision_tenant_database, get_tenant_store
 
+    monkeypatch.setattr(settings, "MONGODB_TENANT_COLLECTIONS_DB", "Philomatrix_ERP")
     first = store.insert("institutions", {
         "slug": "chate", "name": "Chate Junior College of Science, Kolhapur", "code": "CH-1",
     })
@@ -307,7 +309,7 @@ def test_provisioned_institutes_get_college_prefixed_collections_in_main_databas
     assert second_db != first_db
     first_store = get_tenant_store(first_db)
     second_store = get_tenant_store(second_db)
-    assert first_store.name == store.name == "philomatrix"
+    assert first_store.name == second_store.name == "Philomatrix_ERP"
     assert first_store.physical_collection_name("users") == f"{first_db}__users"
     assert second_store.physical_collection_name("users") == f"{second_db}__users"
     assert first_store.count("users") == 1
@@ -315,3 +317,122 @@ def test_provisioned_institutes_get_college_prefixed_collections_in_main_databas
     assert first_store.count("subjects") == 10
     assert second_store.count("users") == 0
     assert store.count("users") == 0
+    assert "Philomatrix_ERP" in store._client.list_database_names()
+
+
+def test_tenant_store_reads_legacy_prefixed_collections_until_migrated(store):
+    from app.core.database import get_tenant_store
+
+    legacy = DocStore(store._database, client=store._client, collection_prefix="legacy_college")
+    ensure_indexes(legacy)
+    legacy.insert("institutions", {
+        "id": "legacy-institution",
+        "name": "Legacy College",
+        "slug": "legacy-college",
+        "code": "LEGACY-1",
+    })
+
+    tenant = get_tenant_store("legacy_college")
+
+    assert tenant.name == "philomatrix"
+    assert tenant.physical_collection_name("institutions") == "legacy_college__institutions"
+    assert tenant.find_one("institutions", {"code": "LEGACY-1"}).id == "legacy-institution"
+
+
+def test_tenant_store_prefers_configured_shared_database_namespace(store, monkeypatch):
+    from app.core.config import settings
+    from app.core.database import get_tenant_store
+
+    monkeypatch.setattr(settings, "MONGODB_TENANT_COLLECTIONS_DB", "Philomatrix_ERP")
+    shared = DocStore(
+        store._client["Philomatrix_ERP"],
+        client=store._client,
+        collection_prefix="shared_college",
+    )
+    ensure_indexes(shared)
+    shared.insert("classes", {"id": "shared-class", "name": "Shared class"})
+    separate = DocStore(store._client["shared_college"], client=store._client)
+    ensure_indexes(separate)
+    separate.insert("classes", {"id": "separate-class", "name": "Separate class"})
+
+    tenant = get_tenant_store("shared_college")
+
+    assert tenant.name == "Philomatrix_ERP"
+    assert tenant.find_one("classes", {"id": "shared-class"}).name == "Shared class"
+
+
+def test_tenant_migration_copies_and_verifies_before_switching_registry(store):
+    from app.core.database import get_tenant_store
+    from migrate_tenant_to_database import migrate_institution
+
+    institution = store.insert("institutions", {
+        "slug": "migration-college",
+        "name": "Migration College",
+        "code": "MIG-1",
+        "database_url": "Legacy_Migration_College",
+    })
+    source = DocStore(
+        store._database,
+        client=store._client,
+        collection_prefix=institution.database_url,
+    )
+    ensure_indexes(source)
+    source.insert("institutions", {
+        "id": institution.id,
+        "slug": institution.slug,
+        "name": institution.name,
+        "code": institution.code,
+        "database_url": institution.database_url,
+    })
+    source.insert("classes", {
+        "id": "migration-class-1",
+        "institution_id": institution.id,
+        "name": "Class 11",
+    })
+
+    migrate_institution(store, store._client, institution, apply=True)
+
+    tenant = get_tenant_store(institution.database_url)
+    assert tenant.name == "Migration_College"
+    assert tenant.get("classes", "migration-class-1").name == "Class 11"
+    assert tenant.get("institutions", institution.id).database_url == "Migration_College"
+    assert source.count("classes") == 1
+
+
+def test_tenant_database_migration_copies_to_prefixed_shared_collections(store, monkeypatch):
+    from app.core.config import settings
+    from app.core.database import get_tenant_store
+    from migrate_tenant_to_collections import migrate_institution
+
+    monkeypatch.setattr(settings, "MONGODB_TENANT_COLLECTIONS_DB", "Philomatrix_ERP")
+    institution = store.insert("institutions", {
+        "slug": "shared-migration-college",
+        "name": "Shared Migration College",
+        "code": "SHARED-1",
+        "database_url": "Shared_Migration_College",
+    })
+    source = DocStore(
+        store._client["Shared_Migration_College"],
+        client=store._client,
+    )
+    ensure_indexes(source)
+    source.insert("institutions", {
+        "id": institution.id,
+        "slug": institution.slug,
+        "name": institution.name,
+        "code": institution.code,
+        "database_url": institution.database_url,
+    })
+    source.insert("classes", {
+        "id": "shared-migration-class-1",
+        "institution_id": institution.id,
+        "name": "Class 11",
+    })
+
+    migrate_institution(store, store._client, institution, apply=True)
+
+    tenant = get_tenant_store(institution.database_url)
+    assert tenant.name == "Philomatrix_ERP"
+    assert tenant.collection_prefix == "Shared_Migration_College"
+    assert tenant.get("classes", "shared-migration-class-1").name == "Class 11"
+    assert source.count("classes") == 1

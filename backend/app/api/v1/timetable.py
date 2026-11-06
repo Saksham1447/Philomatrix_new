@@ -329,9 +329,16 @@ def _check_slot_times(start, end) -> None:
 def _check_no_overlap(db: DocStore, division_id: str, day: int, start, end, ignore_id: Optional[str] = None) -> None:
     for other in db.find("timetable_slots", {"division_id": division_id, "day_of_week": day}):
         if other.id != ignore_id and start < other.end_time and other.start_time < end:
+            day_name = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")[day - 1]
+            start_time = other.start_time.strftime("%I:%M %p").lstrip("0")
+            end_time = other.end_time.strftime("%I:%M %p").lstrip("0")
             raise HTTPException(
                 status_code=409,
-                detail=f"Time overlaps period {other.period_number} on day {day} for this division",
+                detail=(
+                    f"Time overlaps period {other.period_number} "
+                    f"({start_time}–{end_time}) "
+                    f"on {day_name}. Adjust that period or choose a non-overlapping time."
+                ),
             )
 
 

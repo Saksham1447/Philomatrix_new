@@ -1,12 +1,12 @@
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 from decimal import Decimal
 from pydantic import BaseModel
 
 
 class AttendanceRecordInput(BaseModel):
     student_id: str
-    status: str  # PRESENT, ABSENT, LATE, EXCUSED
+    status: Literal["PRESENT", "ABSENT", "EXCUSED", "UNMARKED"]
     remarks: Optional[str] = None
 
 
@@ -79,7 +79,7 @@ class StudentAttendanceSummary(BaseModel):
 
 class AttendanceCorrectionCreate(BaseModel):
     attendance_record_id: str
-    requested_status: str
+    requested_status: Literal["PRESENT", "ABSENT"]
     reason: str
 
 

@@ -18,6 +18,61 @@ from app.schemas.examination import (
 router = APIRouter(prefix="/examinations", tags=["Examinations & Marks Engine"])
 
 
+def _exam_subject_progress(db: DocStore, exam_subject_id: str, division_id: str | None) -> str:
+    approval_filter = {"exam_subject_id": exam_subject_id}
+    marks_filter = {"exam_subject_id": exam_subject_id}
+    if division_id:
+        approval_filter["division_id"] = division_id
+        marks_filter["division_id"] = division_id
+    approvals = db.find("marks_approvals", approval_filter)
+    if any(approval.status == "APPROVED" for approval in approvals):
+        return "APPROVED"
+    if any(approval.status == "PENDING" for approval in approvals):
+        return "PENDING"
+    if any(approval.status == "REJECTED" for approval in approvals):
+        return "REJECTED"
+    if db.count("marks_entries", marks_filter):
+        return "DRAFT"
+    return "NOT_STARTED"
+
+
+def _exam_subject_response(
+    db: DocStore,
+    exam_subject,
+    subjects_by_id=None,
+    classes_by_id=None,
+    divisions_by_id=None,
+    faculty_by_id=None,
+    users_by_id=None,
+) -> ExamSubjectResponse:
+    subject = (subjects_by_id or {}).get(exam_subject.subject_id) or db.get("subjects", exam_subject.subject_id)
+    class_doc = (classes_by_id or {}).get(exam_subject.class_id) or db.get("classes", exam_subject.class_id)
+    division_id = exam_subject.get("division_id")
+    division = ((divisions_by_id or {}).get(division_id) or db.get("divisions", division_id)) if division_id else None
+    faculty_id = exam_subject.get("faculty_id")
+    faculty = ((faculty_by_id or {}).get(faculty_id) or db.get("faculty_profiles", faculty_id)) if faculty_id else None
+    faculty_user = ((users_by_id or {}).get(faculty.user_id) or db.get("users", faculty.user_id)) if faculty else None
+    return ExamSubjectResponse(
+        id=exam_subject.id,
+        subject_id=exam_subject.subject_id,
+        subject_name=subject.name if subject else "Subject",
+        subject_code=subject.code if subject else "",
+        class_id=exam_subject.class_id,
+        class_name=class_doc.name if class_doc else "",
+        division_id=exam_subject.get("division_id"),
+        division_name=division.name if division else None,
+        faculty_id=exam_subject.get("faculty_id"),
+        faculty_name=faculty_user.full_name if faculty_user else None,
+        marks_status=_exam_subject_progress(db, exam_subject.id, exam_subject.get("division_id")),
+        max_theory_marks=exam_subject.max_theory_marks,
+        max_practical_marks=exam_subject.max_practical_marks,
+        min_passing_marks=exam_subject.min_passing_marks,
+        exam_date=exam_subject.exam_date,
+        start_time=exam_subject.get("start_time"),
+        end_time=exam_subject.get("end_time"),
+    )
+
+
 @router.get("", response_model=List[ExaminationResponse])
 def list_examinations(
     academic_year_id: Optional[str] = None,
@@ -30,40 +85,60 @@ def list_examinations(
         flt["academic_year_id"] = academic_year_id
 
     exams = db.find("examinations", flt, sort=[("start_date", -1)])
+    visible_enrollments_by_year = {}
+    visible_student_ids = []
+    role_names = current_user.role_names
+    cohort_restricted = "STUDENT" in role_names or "PARENT" in role_names
+    if "STUDENT" in role_names and current_user.student_profile:
+        visible_student_ids = [current_user.student_profile.id]
+    elif "PARENT" in role_names and current_user.guardian_profile:
+        links = db.find("student_guardian_links", {"guardian_id": current_user.guardian_profile.id})
+        visible_student_ids = ids(links, "student_id")
+    if cohort_restricted and not visible_student_ids:
+        return []
+    if visible_student_ids:
+        for year_id in {exam.academic_year_id for exam in exams}:
+            visible_enrollments_by_year[year_id] = db.find("enrollments", {
+                "student_id": {"$in": visible_student_ids},
+                "academic_year_id": year_id,
+            })
+
     exam_ids = ids(exams)
     pubs_by_exam = group_by(db.find("result_publications", {"examination_id": {"$in": exam_ids}}), "examination_id") if exams else {}
     exam_subjects_by_exam = group_by(db.find("exam_subjects", {"examination_id": {"$in": exam_ids}}), "examination_id") if exams else {}
     all_exam_subjects = [es for group in exam_subjects_by_exam.values() for es in group]
     subjects_by_id = db.get_many("subjects", ids(all_exam_subjects, "subject_id"))
-    first_class_name_by_institution = {}
-
-    def first_class_name(institution_id):
-        # Mirrors the former `subject.institution.classes[0]` lookup (unordered first class).
-        if institution_id not in first_class_name_by_institution:
-            first_class = db.find_one("classes", {"institution_id": institution_id})
-            first_class_name_by_institution[institution_id] = first_class.name if first_class else "Class 11"
-        return first_class_name_by_institution[institution_id]
-
+    classes_by_id = db.get_many("classes", ids(all_exam_subjects, "class_id"))
+    divisions_by_id = db.get_many("divisions", ids(all_exam_subjects, "division_id"))
+    faculty_by_id = db.get_many("faculty_profiles", ids(all_exam_subjects, "faculty_id"))
+    users_by_id = db.get_many("users", [faculty.user_id for faculty in faculty_by_id.values()])
     results = []
     for ex in exams:
         is_published = len(pubs_by_exam.get(ex.id, [])) > 0
+        if visible_student_ids:
+            enrolled_classes = {
+                enrollment.class_id
+                for enrollment in visible_enrollments_by_year.get(ex.academic_year_id, [])
+            }
+            is_published = any(
+                publication.class_id in enrolled_classes
+                for publication in pubs_by_exam.get(ex.id, [])
+            )
         subjects_out = []
         for es in exam_subjects_by_exam.get(ex.id, []):
-            subject = subjects_by_id[es.subject_id]
-            subjects_out.append(
-                ExamSubjectResponse(
-                    id=es.id,
-                    subject_id=es.subject_id,
-                    subject_name=subject.name,
-                    subject_code=subject.code,
-                    class_id=es.class_id,
-                    class_name=first_class_name(subject.institution_id),
-                    max_theory_marks=es.max_theory_marks,
-                    max_practical_marks=es.max_practical_marks,
-                    min_passing_marks=es.min_passing_marks,
-                    exam_date=es.exam_date
-                )
-            )
+            if visible_student_ids:
+                enrollments = visible_enrollments_by_year.get(ex.academic_year_id, [])
+                if not any(
+                    enrollment.class_id == es.class_id and
+                    (not es.get("division_id") or enrollment.division_id == es.division_id)
+                    for enrollment in enrollments
+                ):
+                    continue
+            subjects_out.append(_exam_subject_response(
+                db, es, subjects_by_id, classes_by_id, divisions_by_id, faculty_by_id, users_by_id
+            ))
+        if visible_student_ids and not subjects_out:
+            continue
         results.append(
             ExaminationResponse(
                 id=ex.id,
@@ -83,10 +158,68 @@ def list_examinations(
 @router.post("", response_model=ExaminationResponse, status_code=status.HTTP_201_CREATED)
 def create_examination(
     request: ExaminationCreate,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
     db: DocStore = Depends(get_db)
 ):
-    """[PRINCIPAL] Schedule a new examination with subjects, max marks, and dates."""
+    """Schedule an examination and validate each division/teacher pairing."""
+    if not request.subjects:
+        raise HTTPException(status_code=400, detail="Add at least one subject to the examination")
+    if request.start_date > request.end_date:
+        raise HTTPException(status_code=400, detail="Examination end date must be on or after its start date")
+    year = db.find_one("academic_years", {
+        "id": request.academic_year_id,
+        "institution_id": current_user.institution_id,
+    })
+    if not year:
+        raise HTTPException(status_code=400, detail="Academic year not found in this institution")
+
+    validated_subjects = []
+    seen_subject_divisions = set()
+    for subject_request in request.subjects:
+        subject = db.find_one("subjects", {
+            "id": subject_request.subject_id,
+            "institution_id": current_user.institution_id,
+        })
+        class_doc = db.find_one("classes", {
+            "id": subject_request.class_id,
+            "institution_id": current_user.institution_id,
+        })
+        if not subject or not class_doc:
+            raise HTTPException(status_code=400, detail="Every exam subject and class must belong to this institution")
+        if not request.start_date <= subject_request.exam_date <= request.end_date:
+            raise HTTPException(status_code=400, detail="Each subject exam date must be within the examination date range")
+        if subject_request.end_time <= subject_request.start_time:
+            raise HTTPException(status_code=400, detail="Each subject's end time must be later than its start time")
+        key = (subject_request.subject_id, subject_request.division_id or subject_request.class_id)
+        if key in seen_subject_divisions:
+            raise HTTPException(status_code=400, detail="A subject can only be scheduled once per division in an examination")
+        seen_subject_divisions.add(key)
+
+        if subject_request.division_id or subject_request.faculty_id:
+            division = db.find_one("divisions", {
+                "id": subject_request.division_id,
+                "institution_id": current_user.institution_id,
+                "class_id": subject_request.class_id,
+            })
+            if not division or not subject_request.faculty_id:
+                raise HTTPException(status_code=400, detail="Choose a division and its assigned teacher for each scheduled subject")
+            assignment = db.find_one("faculty_subject_assignments", {
+                "institution_id": current_user.institution_id,
+                "academic_year_id": request.academic_year_id,
+                "faculty_id": subject_request.faculty_id,
+                "subject_id": subject_request.subject_id,
+                "division_id": subject_request.division_id,
+            })
+            if not assignment:
+                raise HTTPException(status_code=400, detail="The selected teacher is not assigned to this subject and division")
+        for existing in validated_subjects:
+            same_division = subject_request.division_id and existing.division_id == subject_request.division_id
+            same_teacher = subject_request.faculty_id and existing.faculty_id == subject_request.faculty_id
+            if (same_division or same_teacher) and existing.exam_date == subject_request.exam_date:
+                if subject_request.start_time < existing.end_time and existing.start_time < subject_request.end_time:
+                    raise HTTPException(status_code=400, detail="Exam times cannot overlap for the same division or teacher")
+        validated_subjects.append(subject_request)
+
     exam = db.insert("examinations", {
         "institution_id": current_user.institution_id,
         "academic_year_id": request.academic_year_id,
@@ -98,32 +231,21 @@ def create_examination(
     })
 
     subjects_out = []
-    for s in request.subjects:
+    for s in validated_subjects:
         es = db.insert("exam_subjects", {
             "examination_id": exam.id,
             "subject_id": s.subject_id,
             "class_id": s.class_id,
+            "division_id": s.division_id,
+            "faculty_id": s.faculty_id,
             "max_theory_marks": s.max_theory_marks,
             "max_practical_marks": s.max_practical_marks,
             "min_passing_marks": s.min_passing_marks,
             "exam_date": s.exam_date,
+            "start_time": s.start_time,
+            "end_time": s.end_time,
         })
-        subj = db.get("subjects", s.subject_id)
-        cls = db.get("classes", s.class_id)
-        subjects_out.append(
-            ExamSubjectResponse(
-                id=es.id,
-                subject_id=es.subject_id,
-                subject_name=subj.name if subj else "Subject",
-                subject_code=subj.code if subj else "",
-                class_id=es.class_id,
-                class_name=cls.name if cls else "",
-                max_theory_marks=es.max_theory_marks,
-                max_practical_marks=es.max_practical_marks,
-                min_passing_marks=es.min_passing_marks,
-                exam_date=es.exam_date
-            )
-        )
+        subjects_out.append(_exam_subject_response(db, es))
 
     return ExaminationResponse(
         id=exam.id,
@@ -138,6 +260,168 @@ def create_examination(
     )
 
 
+def _ensure_exam_is_editable(exam, db: DocStore) -> list:
+    if db.exists("result_publications", {"examination_id": exam.id}):
+        raise HTTPException(status_code=409, detail="Published examinations cannot be edited or deleted")
+    subjects = db.find("exam_subjects", {"examination_id": exam.id})
+    subject_ids = ids(subjects)
+    if subject_ids and (
+        db.exists("marks_entries", {"exam_subject_id": {"$in": subject_ids}})
+        or db.exists("marks_approvals", {"exam_subject_id": {"$in": subject_ids}})
+    ):
+        raise HTTPException(status_code=409, detail="Examinations with saved or submitted marks cannot be edited or deleted")
+    return subjects
+
+
+@router.put("/{id}", response_model=ExaminationResponse)
+def update_examination(
+    id: str,
+    request: ExaminationCreate,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db),
+):
+    exam = db.find_one("examinations", {"id": id, "institution_id": current_user.institution_id})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Examination not found")
+    old_subjects = _ensure_exam_is_editable(exam, db)
+    if not request.subjects:
+        raise HTTPException(status_code=400, detail="An examination must include at least one subject")
+    if request.start_date > request.end_date:
+        raise HTTPException(status_code=400, detail="Examination end date must be on or after its start date")
+    year = db.find_one("academic_years", {
+        "id": request.academic_year_id,
+        "institution_id": current_user.institution_id,
+    })
+    if not year:
+        raise HTTPException(status_code=400, detail="Academic year not found in this institution")
+
+    validated_subjects = []
+    seen_subject_divisions = set()
+    for subject_request in request.subjects:
+        subject = db.find_one("subjects", {
+            "id": subject_request.subject_id,
+            "institution_id": current_user.institution_id,
+        })
+        class_doc = db.find_one("classes", {
+            "id": subject_request.class_id,
+            "institution_id": current_user.institution_id,
+        })
+        if not subject or not class_doc:
+            raise HTTPException(status_code=400, detail="Every exam subject and class must belong to this institution")
+        if not request.start_date <= subject_request.exam_date <= request.end_date:
+            raise HTTPException(status_code=400, detail="Each subject exam date must be within the examination date range")
+        if subject_request.end_time <= subject_request.start_time:
+            raise HTTPException(status_code=400, detail="Each subject's end time must be later than its start time")
+        key = (subject_request.subject_id, subject_request.division_id or subject_request.class_id)
+        if key in seen_subject_divisions:
+            raise HTTPException(status_code=400, detail="A subject can only be scheduled once per division in an examination")
+        seen_subject_divisions.add(key)
+        if subject_request.division_id or subject_request.faculty_id:
+            division = db.find_one("divisions", {
+                "id": subject_request.division_id,
+                "institution_id": current_user.institution_id,
+                "class_id": subject_request.class_id,
+            })
+            if not division or not subject_request.faculty_id:
+                raise HTTPException(status_code=400, detail="Choose a division and its assigned teacher for each scheduled subject")
+            assignment = db.find_one("faculty_subject_assignments", {
+                "institution_id": current_user.institution_id,
+                "academic_year_id": request.academic_year_id,
+                "faculty_id": subject_request.faculty_id,
+                "subject_id": subject_request.subject_id,
+                "division_id": subject_request.division_id,
+            })
+            if not assignment:
+                raise HTTPException(status_code=400, detail="The selected teacher is not assigned to this subject and division")
+        for existing in validated_subjects:
+            same_division = subject_request.division_id and existing.division_id == subject_request.division_id
+            same_teacher = subject_request.faculty_id and existing.faculty_id == subject_request.faculty_id
+            if (same_division or same_teacher) and existing.exam_date == subject_request.exam_date:
+                if subject_request.start_time < existing.end_time and existing.start_time < subject_request.end_time:
+                    raise HTTPException(status_code=400, detail="Exam times cannot overlap for the same division or teacher")
+        validated_subjects.append(subject_request)
+
+    exam = db.update(exam, {
+        "academic_year_id": request.academic_year_id,
+        "name": request.name,
+        "exam_type": request.exam_type,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+    })
+    for exam_subject in old_subjects:
+        db.delete("exam_subjects", exam_subject)
+    subject_rows = []
+    for subject_request in validated_subjects:
+        subject_rows.append(db.insert("exam_subjects", {
+            "examination_id": exam.id,
+            "subject_id": subject_request.subject_id,
+            "class_id": subject_request.class_id,
+            "division_id": subject_request.division_id,
+            "faculty_id": subject_request.faculty_id,
+            "max_theory_marks": subject_request.max_theory_marks,
+            "max_practical_marks": subject_request.max_practical_marks,
+            "min_passing_marks": subject_request.min_passing_marks,
+            "exam_date": subject_request.exam_date,
+            "start_time": subject_request.start_time,
+            "end_time": subject_request.end_time,
+        }))
+    return ExaminationResponse(
+        id=exam.id,
+        academic_year_id=exam.academic_year_id,
+        name=exam.name,
+        exam_type=exam.exam_type,
+        start_date=exam.start_date,
+        end_date=exam.end_date,
+        status=exam.status,
+        is_published=False,
+        subjects=[_exam_subject_response(db, subject_row) for subject_row in subject_rows],
+    )
+
+
+@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_examination(
+    id: str,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db),
+):
+    exam = db.find_one("examinations", {"id": id, "institution_id": current_user.institution_id})
+    if not exam:
+        raise HTTPException(status_code=404, detail="Examination not found")
+    _ensure_exam_is_editable(exam, db)
+    db.delete("examinations", exam)
+    return None
+
+
+def _validate_faculty_exam_assignment(current_user: UserDoc, exam_subject, division_id: str, db: DocStore):
+    if "FACULTY" not in current_user.role_names or not current_user.faculty_profile:
+        raise HTTPException(status_code=403, detail="Only assigned teachers can access exam marks")
+    exam = db.find_one("examinations", {
+        "id": exam_subject.examination_id,
+        "institution_id": current_user.institution_id,
+    })
+    division = db.find_one("divisions", {
+        "id": division_id,
+        "institution_id": current_user.institution_id,
+        "class_id": exam_subject.class_id,
+    })
+    if not exam or not division:
+        raise HTTPException(status_code=404, detail="Exam subject or division not found in this institution")
+    if exam_subject.get("division_id") and exam_subject.division_id != division_id:
+        raise HTTPException(status_code=403, detail="This exam subject is scheduled for a different division")
+    assignment = db.find_one("faculty_subject_assignments", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": exam.academic_year_id,
+        "faculty_id": current_user.faculty_profile.id,
+        "subject_id": exam_subject.subject_id,
+        "division_id": division_id,
+    })
+    if not assignment or (
+        exam_subject.get("faculty_id") and exam_subject.faculty_id != current_user.faculty_profile.id
+    ):
+        raise HTTPException(status_code=403, detail="You are not assigned to this exam subject and division")
+    return exam
+
+
 @router.get("/marks/roster", response_model=List[MarksEntryResponse])
 def get_marks_roster(
     exam_subject_id: str,
@@ -149,8 +433,12 @@ def get_marks_roster(
     es = db.get("exam_subjects", exam_subject_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exam subject not found")
+    exam = _validate_faculty_exam_assignment(current_user, es, division_id, db)
 
-    division_enrollments = db.find("enrollments", {"division_id": division_id})
+    division_enrollments = db.find("enrollments", {
+        "division_id": division_id,
+        "academic_year_id": exam.academic_year_id,
+    })
     students_by_id = db.get_many("students", ids(division_enrollments, "student_id"))
     # Inner join with active students, ordered by roll number then admission number (NULL roll numbers last).
     roster_students = [
@@ -215,6 +503,16 @@ def save_or_submit_marks(
     es = db.get("exam_subjects", request.exam_subject_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exam subject not found")
+    exam = _validate_faculty_exam_assignment(current_user, es, request.division_id, db)
+
+    requested_student_ids = [entry.student_id for entry in request.entries]
+    enrollments = db.find("enrollments", {
+        "division_id": request.division_id,
+        "academic_year_id": exam.academic_year_id,
+        "student_id": {"$in": requested_student_ids},
+    }) if requested_student_ids else []
+    if len({enrollment.student_id for enrollment in enrollments}) != len(set(requested_student_ids)):
+        raise HTTPException(status_code=400, detail="Every marks entry must belong to the selected division")
 
     target_status = "SUBMITTED" if request.submit_for_approval else "DRAFT"
 
@@ -234,14 +532,26 @@ def save_or_submit_marks(
                     detail=f"Practical marks must be between 0 and {es.max_practical_marks}"
                 )
 
+    if not request.entries:
+        raise HTTPException(status_code=400, detail="At least one student mark entry is required")
+    if len(set(requested_student_ids)) != len(requested_student_ids):
+        raise HTTPException(status_code=400, detail="A student can only be included once in a marks batch")
+    enrolled_students = db.find("students", {
+        "id": {"$in": requested_student_ids},
+        "institution_id": current_user.institution_id,
+        "status": "ACTIVE",
+    })
+    if len(enrolled_students) != len(set(requested_student_ids)):
+        raise HTTPException(status_code=400, detail="Marks can only be entered for active students in this institution")
+
     existing_by_student = index_by(
         db.find("marks_entries", {
             "exam_subject_id": request.exam_subject_id,
+            "division_id": request.division_id,
             "student_id": {"$in": [e.student_id for e in request.entries]},
         }) if request.entries else [],
         "student_id",
     )
-
     for entry_in in request.entries:
         total = None
         if not entry_in.is_absent and not entry_in.is_exempt:
@@ -251,9 +561,6 @@ def save_or_submit_marks(
 
         existing = existing_by_student.get(entry_in.student_id)
         if existing:
-            # Cannot modify if already published
-            if existing.status == "APPROVED" and not request.submit_for_approval:
-                pass  # Skip overwrite of approved marks unless correction workflow
             db.update(existing, {
                 "theory_marks_obtained": entry_in.theory_marks_obtained,
                 "practical_marks_obtained": entry_in.practical_marks_obtained,

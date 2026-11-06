@@ -18,6 +18,7 @@ class Student(BaseModel):
     emergency_contact_name = Column(String(100), nullable=True)
     emergency_contact_phone = Column(String(30), nullable=True)
     status = Column(String(20), default="ACTIVE", nullable=False)  # ACTIVE, INACTIVE, TRANSFERRED, GRADUATED
+    fee_status = Column(String(20), default="PENDING", nullable=False)
 
     __table_args__ = (
         UniqueConstraint("institution_id", "admission_number", name="uq_student_adm_no_institution"),

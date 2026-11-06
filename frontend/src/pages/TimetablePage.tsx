@@ -4,7 +4,16 @@ import { api } from '../services/api';
 import { ClassModel, Faculty, Subject, TimetableEntry } from '../types';
 import { formatIndianTime } from '../utils/time';
 import { FacultySlotPicker } from '../components/common/FacultySlotPicker';
-import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, Filter } from 'lucide-react';
+import { Calendar, Clock, MapPin, User, BookOpen, Plus, X, ShieldCheck, ChevronRight } from 'lucide-react';
+
+const SUBJECT_COLORS = [
+  { card: 'border-l-indigo-500 bg-indigo-50/70', chip: 'bg-indigo-100 text-indigo-700' },
+  { card: 'border-l-violet-500 bg-violet-50/70', chip: 'bg-violet-100 text-violet-700' },
+  { card: 'border-l-sky-500 bg-sky-50/70', chip: 'bg-sky-100 text-sky-700' },
+  { card: 'border-l-teal-500 bg-teal-50/70', chip: 'bg-teal-100 text-teal-700' },
+  { card: 'border-l-amber-500 bg-amber-50/70', chip: 'bg-amber-100 text-amber-700' },
+  { card: 'border-l-rose-500 bg-rose-50/70', chip: 'bg-rose-100 text-rose-700' },
+];
 
 export const TimetablePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
@@ -40,6 +49,12 @@ export const TimetablePage: React.FC = () => {
   ];
 
   const periods = Array.from({ length: Math.max(7, ...Object.keys(slotTimes).map(Number)) }, (_, index) => index + 1);
+  const selectedClass = classes.find(item => item.id === selectedClassId);
+  const selectedDivision = selectedClass?.divisions.find(item => item.id === selectedDivisionId);
+  const legendSubjects = subjects.filter(subject =>
+    entries.some(entry => entry.subject_id === subject.id) ||
+    Object.values(slotSubjects).includes(subject.id)
+  );
   const defaultPeriodTimes: Record<number, [string, string]> = {
     1: ['09:00', '10:00'],
     2: ['10:00', '11:00'],
@@ -95,6 +110,7 @@ export const TimetablePage: React.FC = () => {
             setEntries([]);
             setSlotTimes({});
             setSlotSubjects({});
+            setIsLoading(false);
             return;
           }
           url = `/timetable?division_id=${selectedDivisionId}`;
@@ -120,6 +136,25 @@ export const TimetablePage: React.FC = () => {
 
   const getSlot = (dayNum: number, periodNum: number) => {
     return entries.find(e => e.day_of_week === dayNum && e.period_number === periodNum);
+  };
+
+  const scheduleFirstFreeSlot = () => {
+    const firstFree = days.flatMap(day =>
+      periods.map(period => ({ day: day.num, period }))
+    ).find(slot => !getSlot(slot.day, slot.period));
+
+    if (!firstFree) {
+      setError('There are no free periods available in this timetable.');
+      return;
+    }
+
+    setError(null);
+    if (isAdminView) {
+      setSelectedSubjectId(slotSubjects[`${firstFree.day}-${firstFree.period}`] || '');
+      setSelectedFacultyId('');
+      setFacultyEntries([]);
+    }
+    setSelectedSlot(firstFree);
   };
 
   const saveSlot = async (event: React.FormEvent) => {
@@ -170,25 +205,26 @@ export const TimetablePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="mx-auto max-w-[1500px] space-y-7">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight font-display flex items-center gap-2">
-            <Calendar className="w-7 h-7 text-brand-600" />
-            Academic Timetable
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Weekly period schedule with conflict validation and room allocation
-          </p>
-        </div>
-
-        {error && <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">{error}</div>}
-
-        {activeRole === 'FACULTY' && (
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex items-center gap-3 text-xs text-slate-600">
-            <Filter className="w-4 h-4 text-brand-600" />
-            <span>Click any <strong className="text-slate-900">Free</strong> cell to schedule one of your assigned classes. Existing allocations remain protected by conflict detection.</span>
+          <div className="mb-3 flex items-center gap-2 text-xs font-medium text-slate-400">
+            <span>Academics</span><ChevronRight className="h-3.5 w-3.5" /><span className="text-slate-600">Timetable &amp; Scheduling</span>
           </div>
+          <div className="flex items-start gap-4">
+            <div className="hidden rounded-2xl border border-slate-200 bg-slate-100 p-3 text-brand-700 sm:block"><Calendar className="h-7 w-7" /></div>
+            <div>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+                Timetable &amp; Conflict-Free Scheduling Matrix
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">Plan weekly classes with faculty allocation, room details, and built-in clash prevention.</p>
+            </div>
+          </div>
+        </div>
+        {canCreateSchedule && (
+          <button type="button" disabled={isLoading || (isAdminView && !selectedDivisionId)} onClick={scheduleFirstFreeSlot} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-700 to-violet-700 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-950/20 transition hover:from-indigo-800 hover:to-violet-800 disabled:cursor-not-allowed disabled:opacity-50">
+            <Plus className="h-4 w-4" /> Schedule Class Slot
+          </button>
         )}
       </div>
 
@@ -200,117 +236,136 @@ export const TimetablePage: React.FC = () => {
         />
       )}
 
-      {isAdminView && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col sm:flex-row sm:items-end gap-3">
-          <label className="text-xs font-semibold text-slate-600">
-            Department / class
-            <select
-              value={selectedClassId}
-              onChange={event => {
-                const next = classes.find(item => item.id === event.target.value);
-                setSelectedClassId(event.target.value);
-                setSelectedDivisionId(next?.divisions[0]?.id || '');
-              }}
-              className="mt-1 block px-3 py-2 border rounded-lg bg-slate-50 text-sm font-normal"
-            >
-              {classes.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </label>
-          <label className="text-xs font-semibold text-slate-600">
-            Division
-            <select value={selectedDivisionId} onChange={event => setSelectedDivisionId(event.target.value)} className="mt-1 block px-3 py-2 border rounded-lg bg-slate-50 text-sm font-normal">
-              {(classes.find(item => item.id === selectedClassId)?.divisions || []).map(division => <option key={division.id} value={division.id}>Division {division.name}</option>)}
-            </select>
-          </label>
-          <p className="text-xs text-slate-500 sm:ml-auto">Each division has its own timetable. Teachers fill it from their own login.</p>
-        </div>
-      )}
+      {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</div>}
 
-      {/* Timetable Grid */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-left text-xs">
-            <thead>
-              <tr className="bg-slate-900 text-white font-bold uppercase tracking-wider">
-                <th className="py-3 px-4 border-r border-slate-800 w-28">Day / Period</th>
-                {periods.map(p => (
-                  <th key={p} className="py-3 px-3 border-r border-slate-800 text-center min-w-[130px]">
-                    <span className="block">Period {p}</span>
-                    <span className="text-[10px] font-normal text-slate-300">{formatIndianTime(periodTimes[p][0])} - {formatIndianTime(periodTimes[p][1])}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {days.map(d => (
-                <tr key={d.num} className="hover:bg-slate-50/50">
-                  <td className="py-4 px-4 font-bold text-slate-900 bg-slate-50 border-r border-slate-200">
-                    {d.name}
-                  </td>
-                  {periods.map(p => {
-                    const slot = getSlot(d.num, p);
-                    return (
-                      <td key={p} className="p-2 border-r border-slate-200 align-top">
-                        {slot ? (
-                          <div className="p-2.5 rounded-xl bg-brand-50/80 border border-brand-200 text-brand-950 space-y-1 shadow-2xs">
-                            <div className="flex items-center justify-between">
-                              <span className="font-extrabold text-xs text-brand-700">
-                                {slot.subject_code}
-                              </span>
-                              <span className="text-[10px] text-slate-500">
-                                {formatIndianTime(slot.start_time)}
-                              </span>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-[#17263e] via-[#223858] to-[#17263e] px-6 py-5 text-white">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold">Academic Timetable Parameters &amp; Course Legend</h2>
+              <p className="mt-1 text-xs text-slate-300">Choose a cohort, review course allocations, and schedule without clashes.</p>
+            </div>
+            <span className="inline-flex items-center gap-2 rounded-lg border border-slate-500/50 bg-slate-800/60 px-3 py-2 text-[11px] font-bold text-slate-200">
+              <ShieldCheck className="h-4 w-4 text-emerald-400" /> Clash Detection: <span className="text-emerald-300">Active</span>
+            </span>
+          </div>
+        </div>
+        <div className="space-y-4 p-5 sm:px-6">
+          {isAdminView && (
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:flex-row sm:items-center">
+              <span className="inline-flex items-center gap-2"><BookOpen className="h-4 w-4 text-slate-400" /> Active Academic Cohort</span>
+              <select
+                aria-label="Active Academic Cohort"
+                value={selectedDivisionId}
+                onChange={event => {
+                  const nextClass = classes.find(item => item.divisions.some(division => division.id === event.target.value));
+                  setSelectedClassId(nextClass?.id || '');
+                  setSelectedDivisionId(event.target.value);
+                }}
+                className="w-full max-w-md rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-normal text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+              >
+                {classes.flatMap(item => item.divisions.map(division => (
+                  <option key={division.id} value={division.id}>{item.name} · Division {division.name}</option>
+                )))}
+              </select>
+            </label>
+          )}
+          {legendSubjects.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+              <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Subject legend</span>
+              {legendSubjects.map(subject => {
+                const color = SUBJECT_COLORS[Math.max(0, subjects.findIndex(item => item.id === subject.id)) % SUBJECT_COLORS.length];
+                return <span key={subject.id} className={`inline-flex items-center gap-1.5 rounded-full border border-current/10 px-2.5 py-1 text-[10px] font-bold ${color.chip}`}><span className="h-1.5 w-1.5 rounded-full bg-current" />{subject.code}: {subject.name}</span>;
+              })}
+            </div>
+          ) : (
+            <p className="border-t border-slate-100 pt-4 text-xs text-slate-400">Subjects will appear here as they are scheduled for this cohort.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700 bg-gradient-to-r from-[#17263e] via-[#223858] to-[#17263e] px-6 py-5 text-white">
+          <div>
+            <h2 className="text-base font-bold">Weekly Lecture Schedule Matrix{selectedClass && selectedDivision ? ` (${selectedClass.name} · Division ${selectedDivision.name})` : ''}</h2>
+            <p className="mt-1 text-xs text-slate-300">Monday through Saturday · {periods.length} periods daily · Conflict-checked allocations</p>
+          </div>
+          <span className="rounded-lg border border-slate-500/50 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-200">Weekly Schedule</span>
+        </div>
+        {isLoading ? (
+          <div className="p-10 text-center text-sm text-slate-400">Loading timetable…</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1050px] border-collapse text-left text-xs">
+              <thead>
+                <tr className="bg-[#1c2d48] text-white">
+                  <th className="w-28 border-r border-slate-700 px-4 py-3 text-center text-[10px] font-bold uppercase tracking-wider">Day</th>
+                  {periods.map(period => (
+                    <th key={period} className="min-w-[155px] border-r border-slate-700 px-3 py-2.5 text-center">
+                      <span className="inline-block rounded-md bg-slate-600/70 px-2 py-1 text-xs font-bold">Period {period}</span>
+                      <span className="mt-1 block text-[10px] font-normal text-sky-200">{formatIndianTime(periodTimes[period][0])} – {formatIndianTime(periodTimes[period][1])}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {days.map(day => (
+                  <tr key={day.num}>
+                    <th scope="row" className="border-r border-slate-100 bg-slate-50 px-3 py-3 text-center">
+                      <span className="mx-auto mb-1 flex h-7 w-10 items-center justify-center rounded-md bg-slate-200 text-[9px] font-black uppercase text-slate-600">{day.name.slice(0, 3)}</span>
+                      <span className="text-xs font-bold text-slate-800">{day.name}</span>
+                    </th>
+                    {periods.map(period => {
+                      const slot = getSlot(day.num, period);
+                      const colorIndex = slot ? subjects.findIndex(subject => subject.id === slot.subject_id) : -1;
+                      const color = SUBJECT_COLORS[(colorIndex < 0 ? 0 : colorIndex) % SUBJECT_COLORS.length];
+                      return (
+                        <td key={period} className="border-r border-slate-100 p-1.5 align-top">
+                          {slot ? (
+                            <div className={`min-h-[82px] rounded-xl border border-slate-200 border-l-4 p-2.5 shadow-sm ${color.card}`}>
+                              <div className="mb-1.5 flex items-center justify-between gap-2">
+                                <span className={`max-w-[75%] truncate rounded-full px-2 py-0.5 text-[9px] font-extrabold ${color.chip}`}>{slot.subject_code || 'SUBJECT'}</span>
+                                <span className="shrink-0 text-[9px] font-semibold text-slate-400">{slot.is_practical_batch ? 'LAB' : 'LEC'}</span>
+                              </div>
+                              <p className="truncate text-[11px] font-bold text-slate-900" title={slot.subject_name}>{slot.subject_name}</p>
+                              {!isAdminView && <p className="mt-1 truncate text-[10px] font-medium text-slate-500">{slot.class_name} · Div {slot.division_name}</p>}
+                              <div className="mt-1.5 flex min-w-0 items-center justify-between gap-1 text-[9px] text-slate-500">
+                                <span className="flex min-w-0 items-center gap-1 truncate"><User className="h-3 w-3 shrink-0" />{slot.faculty_name}</span>
+                                {slot.room_number && <span className="flex shrink-0 items-center gap-1"><MapPin className="h-3 w-3" />{slot.room_number}</span>}
+                              </div>
                             </div>
-                            <p className="font-bold text-xs truncate" title={slot.subject_name}>
-                              {slot.subject_name}
-                            </p>
-                            {!isAdminView && (
-                              <p className="text-[10px] font-semibold text-brand-700 truncate">{slot.class_name} · Div {slot.division_name}</p>
-                            )}
-                            <p className="text-[11px] text-slate-600 truncate flex items-center gap-1">
-                              <User className="w-3 h-3 text-slate-400 shrink-0" />
-                              {slot.faculty_name}
-                            </p>
-                            {slot.room_number && (
-                              <p className="text-[10px] text-slate-500 flex items-center gap-1">
-                                <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                                {slot.room_number}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={!canCreateSchedule}
-                            onClick={() => {
-                              if (canCreateSchedule) {
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!canCreateSchedule}
+                              onClick={() => {
+                                if (!canCreateSchedule) return;
                                 setError(null);
                                 if (isAdminView) {
-                                  setSelectedSubjectId(slotSubjects[`${d.num}-${p}`] || '');
+                                  setSelectedSubjectId(slotSubjects[`${day.num}-${period}`] || '');
                                   setSelectedFacultyId('');
                                   setFacultyEntries([]);
                                 }
-                                setSelectedSlot({ day: d.num, period: p });
-                              }
-                            }}
-                            className={`h-20 w-full rounded-xl border border-dashed flex flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors ${
-                              canCreateSchedule
-                                ? 'border-slate-300 text-slate-400 hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 cursor-pointer'
-                                : 'border-transparent text-slate-300'
-                            }`}
-                          >
-                            {canCreateSchedule && <Plus className="w-4 h-4" />}
-                            <span>{canCreateSchedule ? 'Add lecture' : '—'}</span>
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                                setSelectedSlot({ day: day.num, period });
+                              }}
+                              className={`flex min-h-[82px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed transition ${
+                                canCreateSchedule
+                                  ? 'border-slate-200 text-slate-400 hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-600'
+                                  : 'border-transparent text-slate-300'
+                              }`}
+                            >
+                              {canCreateSchedule ? <><Clock className="h-4 w-4" /><span className="text-[10px] font-medium">Free</span></> : <span aria-label="No scheduled class">—</span>}
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {selectedSlot && (
           <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
@@ -379,7 +434,7 @@ export const TimetablePage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 };

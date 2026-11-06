@@ -124,10 +124,20 @@ export interface Student {
   admission_date: string;
   address?: string;
   status: string;
+  fee_status: 'PAID' | 'PENDING' | 'OVERDUE';
   class_name?: string;
   division_name?: string;
   division_id?: string;
   academic_year_name?: string;
+  guardians?: Array<{
+    id: string;
+    user_id: string;
+    full_name: string;
+    email: string;
+    phone_number?: string;
+    relationship_type: string;
+    occupation?: string;
+  }>;
 }
 
 export interface TimetableEntry {
@@ -194,10 +204,17 @@ export interface ExamSubject {
   subject_code: string;
   class_id: string;
   class_name: string;
+  division_id?: string;
+  division_name?: string;
+  faculty_id?: string;
+  faculty_name?: string;
+  marks_status?: string;
   max_theory_marks: number;
   max_practical_marks: number;
   min_passing_marks: number;
   exam_date?: string;
+  start_time?: string;
+  end_time?: string;
 }
 
 export interface Examination {

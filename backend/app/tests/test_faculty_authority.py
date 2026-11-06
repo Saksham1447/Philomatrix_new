@@ -1,5 +1,5 @@
 import io
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 from app.main import app
@@ -46,8 +46,8 @@ def test_faculty_assigned_slots_and_roster():
     assert first_scholar["statutory_status"] in ["ELIGIBLE", "SHORTAGE"]
 
 
-def test_faculty_attendance_draft_and_commit_workflow(monkeypatch):
-    """Verify draft saving, unmarked validation, submission persistence, and duplicate protection."""
+def test_faculty_attendance_draft_and_commit_workflow():
+    """Verify attendance can be saved outside live slot time with other validation intact."""
     token = get_token("physics.prof@royalscience.edu", "Faculty@Pass2026")
     headers = {"Authorization": f"Bearer {token}"}
 
@@ -57,26 +57,22 @@ def test_faculty_attendance_draft_and_commit_workflow(monkeypatch):
     div_id = slot["division_id"]
     subj_id = slot["subject_id"]
 
-    roster_res = client.get(f"/api/v1/attendance/roster?division_id={div_id}", headers=headers)
-    roster = roster_res.json()
-    assert len(roster) >= 2
-
-    import app.api.v1.attendance as attendance_api
     import uuid
     slot_day = slot["day_of_week"]
-    candidate = date.today() + timedelta(days=7 * ((uuid.uuid4().int % 20) + 1))
-    while candidate.weekday() + 1 != slot_day:
+    candidate = date.today() + timedelta(days=7 * ((uuid.uuid4().int % 20) + 1) + 1)
+    while candidate.weekday() + 1 == slot_day:
         candidate += timedelta(days=1)
-    start = datetime.strptime(slot["start_time"], "%H:%M").time()
-    fake_now = datetime.combine(candidate, start) + timedelta(minutes=1)
-    monkeypatch.setattr(
-        attendance_api,
-        "_india_now",
-        lambda: fake_now.replace(tzinfo=attendance_api.INDIA_TZ),
-    )
     test_date = candidate.isoformat()
     period = slot["period_number"]
 
+    roster_res = client.get(
+        f"/api/v1/attendance/roster?division_id={div_id}&subject_id={subj_id}"
+        f"&session_date={test_date}&period_number={period}",
+        headers=headers,
+    )
+    assert roster_res.status_code == 200
+    roster = roster_res.json()
+    assert len(roster) >= 2
 
     # 1. Save draft with an unmarked student
     draft_records = [

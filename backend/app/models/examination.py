@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Date, DateTime, Numeric, Boolean, Text, ForeignKey, JSON, UniqueConstraint
+from sqlalchemy import Column, String, Integer, Date, DateTime, Time, Numeric, Boolean, Text, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -25,13 +25,17 @@ class ExamSubject(BaseModel):
     examination_id = Column(String(36), ForeignKey("examinations.id", ondelete="CASCADE"), nullable=False, index=True)
     subject_id = Column(String(36), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
     class_id = Column(String(36), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    division_id = Column(String(36), ForeignKey("divisions.id", ondelete="CASCADE"), nullable=True)
+    faculty_id = Column(String(36), ForeignKey("faculty_profiles.id", ondelete="SET NULL"), nullable=True)
     max_theory_marks = Column(Numeric(5, 2), default=70.00, nullable=False)
     max_practical_marks = Column(Numeric(5, 2), default=30.00, nullable=False)
     min_passing_marks = Column(Numeric(5, 2), default=35.00, nullable=False)
     exam_date = Column(Date, nullable=True)
+    start_time = Column(Time, nullable=True)
+    end_time = Column(Time, nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("examination_id", "subject_id", "class_id", name="uq_exam_subject_class"),
+        UniqueConstraint("examination_id", "subject_id", "class_id", "division_id", name="uq_exam_subject_division"),
     )
 
     examination = relationship("Examination", back_populates="exam_subjects")

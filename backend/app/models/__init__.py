@@ -9,6 +9,7 @@ from app.models.academic import (
     ClassModel,
     Division,
     Subject,
+    ClassSubject,
     FacultyProfile,
     FacultySubjectAssignment,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "ClassModel",
     "Division",
     "Subject",
+    "ClassSubject",
     "FacultyProfile",
     "FacultySubjectAssignment",
     "Student",

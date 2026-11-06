@@ -9,6 +9,7 @@ from app.schemas.academic import (
     AcademicYearResponse,
     ClassCreate,
     ClassResponse,
+    ClassSubjectsUpdate,
     DivisionCreate,
     DivisionResponse,
     SubjectCreate,
@@ -229,6 +230,95 @@ def list_subjects(
         {"institution_id": current_user.institution_id},
         sort=[("name", 1)],
     )
+
+
+@router.get("/classes/{id}/subjects", response_model=List[SubjectResponse])
+def list_class_subjects(
+    id: str,
+    academic_year_id: str,
+    current_user: UserDoc = Depends(get_current_user),
+    db: DocStore = Depends(get_db),
+):
+    cls = db.find_one("classes", {"id": id, "institution_id": current_user.institution_id})
+    year = db.find_one("academic_years", {
+        "id": academic_year_id,
+        "institution_id": current_user.institution_id,
+    })
+    if not cls or not year:
+        raise HTTPException(status_code=404, detail="Class or academic year not found")
+    mappings = db.find("class_subjects", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": academic_year_id,
+        "class_id": id,
+    })
+    if not mappings:
+        # Existing installations may have teacher assignments but no explicit curriculum mapping.
+        divisions = db.find("divisions", {"class_id": id})
+        mappings = db.find("faculty_subject_assignments", {
+            "institution_id": current_user.institution_id,
+            "academic_year_id": academic_year_id,
+            "division_id": {"$in": ids(divisions)},
+        }) if divisions else []
+        subject_ids = list(dict.fromkeys(ids(mappings, "subject_id")))
+    else:
+        subject_ids = ids(mappings, "subject_id")
+    subjects = db.get_many("subjects", subject_ids)
+    return [subjects[subject_id] for subject_id in subject_ids if subject_id in subjects]
+
+
+@router.put("/classes/{id}/subjects", response_model=List[SubjectResponse])
+def update_class_subjects(
+    id: str,
+    request: ClassSubjectsUpdate,
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "OFFICE_STAFF")),
+    db: DocStore = Depends(get_db),
+):
+    cls = db.find_one("classes", {"id": id, "institution_id": current_user.institution_id})
+    year = db.find_one("academic_years", {
+        "id": request.academic_year_id,
+        "institution_id": current_user.institution_id,
+    })
+    if not cls or not year:
+        raise HTTPException(status_code=404, detail="Class or academic year not found")
+    subject_ids = list(dict.fromkeys(request.subject_ids))
+    subjects = db.get_many("subjects", subject_ids)
+    if len(subjects) != len(subject_ids) or any(
+        subject.institution_id != current_user.institution_id for subject in subjects.values()
+    ):
+        raise HTTPException(status_code=400, detail="Choose subjects belonging to this institution")
+
+    existing_mappings = db.find("class_subjects", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "class_id": id,
+    })
+    existing_subject_ids = set(ids(existing_mappings, "subject_id"))
+    requested_subject_ids = set(subject_ids)
+    removed_subject_ids = existing_subject_ids - requested_subject_ids
+    divisions = db.find("divisions", {"class_id": id})
+    assigned_subjects = db.find("faculty_subject_assignments", {
+        "institution_id": current_user.institution_id,
+        "academic_year_id": request.academic_year_id,
+        "division_id": {"$in": ids(divisions)},
+        "subject_id": {"$in": list(removed_subject_ids)},
+    }) if divisions and removed_subject_ids else []
+    if assigned_subjects:
+        raise HTTPException(
+            status_code=409,
+            detail="Unassign teachers from removed subjects before updating the class curriculum",
+        )
+    for mapping in existing_mappings:
+        if mapping.subject_id in removed_subject_ids:
+            db.delete("class_subjects", mapping)
+    for subject_id in subject_ids:
+        if subject_id not in existing_subject_ids:
+            db.insert("class_subjects", {
+                "institution_id": current_user.institution_id,
+                "academic_year_id": request.academic_year_id,
+                "class_id": id,
+                "subject_id": subject_id,
+            })
+    return [subjects[subject_id] for subject_id in subject_ids]
 
 
 @router.post("/subjects", response_model=SubjectResponse, status_code=status.HTTP_201_CREATED)

@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import List, Optional, Any, Dict
 from decimal import Decimal
 from pydantic import BaseModel
@@ -7,10 +7,14 @@ from pydantic import BaseModel
 class ExamSubjectCreate(BaseModel):
     subject_id: str
     class_id: str
+    division_id: Optional[str] = None
+    faculty_id: Optional[str] = None
     max_theory_marks: Decimal = Decimal("70.00")
     max_practical_marks: Decimal = Decimal("30.00")
     min_passing_marks: Decimal = Decimal("35.00")
-    exam_date: Optional[date] = None
+    exam_date: date
+    start_time: time
+    end_time: time
 
 
 class ExamSubjectResponse(BaseModel):
@@ -20,10 +24,17 @@ class ExamSubjectResponse(BaseModel):
     subject_code: str
     class_id: str
     class_name: str
+    division_id: Optional[str] = None
+    division_name: Optional[str] = None
+    faculty_id: Optional[str] = None
+    faculty_name: Optional[str] = None
+    marks_status: str = "NOT_STARTED"
     max_theory_marks: Decimal
     max_practical_marks: Decimal
     min_passing_marks: Decimal
     exam_date: Optional[date] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
 
     class Config:
         from_attributes = True

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import List, Union
 
 from pydantic import field_validator, model_validator
@@ -22,6 +23,7 @@ class Settings(BaseSettings):
     # MongoDB Atlas. A URI is mandatory in production; development tests inject a client.
     MONGODB_URI: str | None = None
     MONGODB_DB_PREFIX: str = "philomatrix"
+    MONGODB_TENANT_COLLECTIONS_DB: str | None = None
     # Reserved for the user-controlled migration source. Application code never consumes it.
     LEGACY_DATABASE_URL: str = ""
 
@@ -59,6 +61,15 @@ class Settings(BaseSettings):
             if self.JWT_SECRET == _DEFAULT_JWT_SECRET:
                 raise ValueError("JWT_SECRET must be explicitly configured in production")
         return self
+
+    @field_validator("MONGODB_TENANT_COLLECTIONS_DB")
+    @classmethod
+    def validate_tenant_collections_database(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            return None
+        if value is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,38}", value):
+            raise ValueError("MONGODB_TENANT_COLLECTIONS_DB must be a valid MongoDB database name")
+        return value
 
     model_config = SettingsConfigDict(
         env_file=".env",

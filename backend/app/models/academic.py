@@ -77,6 +77,19 @@ class Subject(BaseModel):
     faculty_assignments = relationship("FacultySubjectAssignment", back_populates="subject", cascade="all, delete-orphan")
 
 
+class ClassSubject(BaseModel):
+    __tablename__ = "class_subjects"
+
+    institution_id = Column(String(36), ForeignKey("institutions.id", ondelete="CASCADE"), nullable=False, index=True)
+    academic_year_id = Column(String(36), ForeignKey("academic_years.id", ondelete="CASCADE"), nullable=False)
+    class_id = Column(String(36), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    subject_id = Column(String(36), ForeignKey("subjects.id", ondelete="CASCADE"), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("academic_year_id", "class_id", "subject_id", name="uq_class_subject_year"),
+    )
+
+
 class FacultyProfile(BaseModel):
     __tablename__ = "faculty_profiles"
 
