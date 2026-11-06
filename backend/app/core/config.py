@@ -1,9 +1,9 @@
 import json
 import re
-from typing import List, Union
+from typing import Annotated, List, Union
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 _DEFAULT_JWT_SECRET = "super_secret_jwt_key_philomatrix_2026_change_in_production"
@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     LEGACY_DATABASE_URL: str = ""
 
     # CORS
-    ALLOWED_ORIGINS: List[str] = [
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
