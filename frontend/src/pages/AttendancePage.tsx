@@ -562,7 +562,7 @@ export const AttendancePage: React.FC = () => {
                           {/* 5. Session State Interactive Pills */}
                           <td className="py-4 px-6 text-right">
                             <div className="inline-flex items-center gap-1.5">
-                              {/* Present Pill */}
+                              {/* Present status */}
                               <button
                                 type="button"
                                 disabled={isSessionLocked}
@@ -572,12 +572,15 @@ export const AttendancePage: React.FC = () => {
                                     ? 'bg-emerald-600 text-white shadow-sm'
                                     : 'bg-[#1b2b46] text-slate-400 hover:text-white hover:bg-slate-700/60'
                                 } ${isSessionLocked ? 'opacity-80 cursor-default' : ''}`}
+                                aria-label={`Mark ${scholar.student_name} present`}
+                                title="Present"
                               >
-                                {isPresent && <Check className="w-3 h-3 inline mr-1" />}
-                                Present
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] font-extrabold">
+                                  P
+                                </span>
                               </button>
 
-                              {/* Absent Pill */}
+                              {/* Absent status */}
                               <button
                                 type="button"
                                 disabled={isSessionLocked}
@@ -587,9 +590,12 @@ export const AttendancePage: React.FC = () => {
                                     ? 'bg-rose-600 text-white shadow-sm'
                                     : 'bg-[#1b2b46] text-slate-400 hover:text-white hover:bg-slate-700/60'
                                 } ${isSessionLocked ? 'opacity-80 cursor-default' : ''}`}
+                                aria-label={`Mark ${scholar.student_name} absent`}
+                                title="Absent"
                               >
-                                {isAbsent && <X className="w-3 h-3 inline mr-1" />}
-                                Absent
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] font-extrabold">
+                                  A
+                                </span>
                               </button>
 
                               {/* Correction button if locked */}

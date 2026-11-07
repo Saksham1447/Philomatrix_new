@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom';
 
 export const StudentsPage: React.FC = () => {
   const { activeRole } = useAuth();
+  const canUpdateFeeStatus = activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF';
   const [searchParams] = useSearchParams();
   const classFilter = searchParams.get('class_id');
   const divisionFilter = searchParams.get('division_id');
@@ -302,7 +303,7 @@ export const StudentsPage: React.FC = () => {
                   <td className="px-4 py-3.5 text-center text-slate-400" title="Marks percentage is not available in the student registry data">—</td>
                   <td className="px-4 py-3.5 text-center text-slate-400" title="Open the dossier to load verified attendance">View dossier</td>
                   <td className="px-4 py-3.5 text-center">
-                    {(activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF') ? (
+                    {canUpdateFeeStatus ? (
                       <select
                         aria-label={`Fee status for ${student.full_name}`}
                         value={student.fee_status || 'PENDING'}
@@ -360,7 +361,7 @@ export const StudentsPage: React.FC = () => {
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Marks Total Percentage</p><p className="mt-2 text-3xl font-bold text-slate-900">—</p><p className="mt-1 text-xs text-slate-500">No marks summary available</p></div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fee Status</p>
-                  {(activeRole === 'PRINCIPAL' || activeRole === 'OFFICE_STAFF') ? (
+                  {canUpdateFeeStatus ? (
                     <select aria-label={`Dossier fee status for ${selectedStudent.full_name}`} value={selectedStudent.fee_status || 'PENDING'} onChange={event => handleFeeStatusChange(selectedStudent, event.target.value as Student['fee_status'])} className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700">
                       <option value="PAID">Paid</option><option value="PENDING">Pending</option><option value="OVERDUE">Overdue</option>
                     </select>

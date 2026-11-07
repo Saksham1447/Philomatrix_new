@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../services/api';
 import { StudentsPage } from '../pages/StudentsPage';
 
+const mockAuth = vi.hoisted(() => ({ activeRole: 'PRINCIPAL' }));
+
 vi.mock('../services/api', () => ({
   api: {
     get: vi.fn(),
@@ -15,7 +17,7 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ activeRole: 'PRINCIPAL' }),
+  useAuth: () => mockAuth,
 }));
 
 const roster = [
@@ -61,6 +63,7 @@ const roster = [
 describe('StudentsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuth.activeRole = 'PRINCIPAL';
     vi.mocked(api.get).mockImplementation(async (endpoint: string) => {
       if (endpoint.startsWith('/students?') || endpoint === '/students') return roster as never;
       if (endpoint === '/academics/classes') {
@@ -118,5 +121,14 @@ describe('StudentsPage', () => {
 
     await waitFor(() => expect(api.put).toHaveBeenCalledWith('/students/student-1/fee-status', { fee_status: 'PAID' }));
     await waitFor(() => expect(screen.getByRole('combobox', { name: 'Fee status for Asha Patel' })).toHaveValue('PAID'));
+  });
+
+  it('shows fee status as read-only for faculty', async () => {
+    mockAuth.activeRole = 'FACULTY';
+    render(<MemoryRouter><StudentsPage /></MemoryRouter>);
+
+    await screen.findByText('Asha Patel');
+    expect(screen.queryByRole('combobox', { name: 'Fee status for Asha Patel' })).not.toBeInTheDocument();
+    expect(screen.getByText('PENDING')).toBeInTheDocument();
   });
 });
