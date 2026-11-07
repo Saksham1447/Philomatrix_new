@@ -17,10 +17,10 @@ import {
   Calendar,
   Sparkles,
   ShieldCheck,
-  ClipboardCheck
-  ,BarChart3
-  ,UserPlus
-  ,X
+  ClipboardCheck,
+  BarChart3,
+  UserPlus,
+  X,
 } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
@@ -273,13 +273,25 @@ export const DashboardPage: React.FC = () => {
 
       {(activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY') && analytics && (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <BarChart3 className="w-5 h-5" />
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                <BarChart3 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 font-display">Class & Division Attendance</h2>
+                <p className="text-xs text-slate-500">One view of attendance performance across every enrolled division.</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 font-display">Class & Division Attendance</h2>
-              <p className="text-xs text-slate-500">Overall attendance across every enrolled class and division.</p>
+            <div className="flex items-center gap-4 text-[11px] font-semibold text-slate-500 sm:pt-2">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                On track (75%+)
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                Needs attention
+              </span>
             </div>
           </div>
           {!analytics.attendance_by_division || analytics.attendance_by_division.length === 0 ? (
@@ -287,28 +299,61 @@ export const DashboardPage: React.FC = () => {
               No attendance records are available yet.
             </p>
           ) : (
-            <div className="space-y-4">
-              {analytics.attendance_by_division.map((group: any) => (
-                <div key={`${group.class_name}-${group.division_name}`}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-semibold text-slate-700">
-                      {group.class_name} — Division {group.division_name}
-                    </span>
-                    <span className={`text-xs font-bold ${group.attendance_percentage >= 75 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {Number(group.attendance_percentage).toFixed(2)}%
-                    </span>
-                  </div>
-                  <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all ${group.attendance_percentage >= 75 ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                      style={{ width: `${Math.min(100, Math.max(0, Number(group.attendance_percentage)))}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    {group.total_attended} attended / {group.total_conducted} recorded lectures
-                  </p>
-                </div>
-              ))}
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-5 overflow-x-auto">
+              <svg
+                className="w-full min-w-[640px]"
+                viewBox={`0 0 860 ${Math.max(180, 112 + analytics.attendance_by_division.length * 52)}`}
+                role="img"
+                aria-label="Class and division wise attendance percentages"
+              >
+                <defs>
+                  <linearGradient id="attendanceOnTrack" x1="0" x2="1">
+                    <stop offset="0%" stopColor="#10b981" />
+                    <stop offset="100%" stopColor="#34d399" />
+                  </linearGradient>
+                  <linearGradient id="attendanceNeedsAttention" x1="0" x2="1">
+                    <stop offset="0%" stopColor="#f43f5e" />
+                    <stop offset="100%" stopColor="#fb7185" />
+                  </linearGradient>
+                </defs>
+                {[0, 25, 50, 75, 100].map((tick) => {
+                  const x = 245 + (tick / 100) * 530;
+                  return (
+                    <g key={tick}>
+                      <line x1={x} y1="42" x2={x} y2={76 + analytics.attendance_by_division.length * 52} stroke="#e2e8f0" strokeDasharray="4 5" />
+                      <text x={x} y="25" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="600">
+                        {tick}%
+                      </text>
+                    </g>
+                  );
+                })}
+                <text x="20" y="25" fill="#64748b" fontSize="11" fontWeight="700">CLASS / DIVISION</text>
+                <text x="790" y="25" textAnchor="end" fill="#64748b" fontSize="11" fontWeight="700">ATTENDANCE</text>
+                {analytics.attendance_by_division.map((group: any, index: number) => {
+                  const percentage = Math.min(100, Math.max(0, Number(group.attendance_percentage) || 0));
+                  const y = 52 + index * 52;
+                  const barWidth = percentage * 5.3;
+                  const onTrack = percentage >= 75;
+                  return (
+                    <g key={`${group.class_name}-${group.division_name}`}>
+                      <title>
+                        {group.class_name} — Division {group.division_name}: {percentage.toFixed(2)}% ({group.total_attended} attended of {group.total_conducted} recorded)
+                      </title>
+                      <text x="20" y={y + 17} fill="#334155" fontSize="13" fontWeight="700">
+                        {group.class_name} — Division {group.division_name}
+                      </text>
+                      <rect x="245" y={y + 4} width="530" height="22" rx="11" fill="#e2e8f0" />
+                      <rect x="245" y={y + 4} width={barWidth} height="22" rx="11" fill={`url(#${onTrack ? 'attendanceOnTrack' : 'attendanceNeedsAttention'})`} />
+                      <text x="790" y={y + 20} textAnchor="end" fill={onTrack ? "#059669" : "#e11d48"} fontSize="14" fontWeight="800">
+                        {percentage.toFixed(2)}%
+                      </text>
+                      <text x="20" y={y + 37} fill="#94a3b8" fontSize="10">
+                        {group.total_attended} attended / {group.total_conducted} recorded lectures
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
             </div>
           )}
         </div>
