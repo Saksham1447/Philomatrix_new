@@ -13,6 +13,38 @@ export class ApiError extends Error {
   }
 }
 
+const TRANSIENT_STATUSES = new Set([502, 503, 504]);
+
+async function fetchWithRetry(url: string, options: RequestInit): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const response = await fetch(url, options);
+      if (!TRANSIENT_STATUSES.has(response.status) || attempt === 2) {
+        return response;
+      }
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2) {
+        throw new ApiError(
+          'The backend is temporarily unavailable. Please try again in a few seconds.',
+          503,
+          error,
+        );
+      }
+    }
+
+    await new Promise((resolve) => window.setTimeout(resolve, 1000 * (attempt + 1)));
+  }
+
+  throw new ApiError(
+    'The backend is temporarily unavailable. Please try again in a few seconds.',
+    503,
+    lastError,
+  );
+}
+
 export async function request<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -26,7 +58,7 @@ export async function request<T>(
     ...(options.headers || {}),
   };
 
-  const response = await fetch(`${BASE_URL}${endpoint}`, {
+  const response = await fetchWithRetry(`${BASE_URL}${endpoint}`, {
     ...options,
     headers,
   });
@@ -71,7 +103,7 @@ export const api = {
   downloadPdf: async (url: string, filename: string) => {
     const token = localStorage.getItem('philomatrix_access_token');
     const institutionId = localStorage.getItem('philomatrix_institution_id');
-    const response = await fetch(`${BASE_URL}${url}`, {
+    const response = await fetchWithRetry(`${BASE_URL}${url}`, {
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(institutionId ? { 'X-Institution-ID': institutionId } : {}),
