@@ -111,6 +111,12 @@ export const DashboardPage: React.FC = () => {
           }
         } else if (activeRole === 'OFFICE_STAFF') {
           try {
+            const perf = await api.get<any>('/reports/analytics/class-performance');
+            setAnalytics(perf);
+          } catch (err) {
+            console.error('Error loading office attendance analytics', err);
+          }
+          try {
             setLeaveRequests(await api.get<any[]>('/leave-requests'));
           } catch (err) {
             console.error('Error loading leave requests', err);
@@ -271,7 +277,7 @@ export const DashboardPage: React.FC = () => {
         </div>
       )}
 
-      {(activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY') && analytics && (
+      {(activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY' || activeRole === 'OFFICE_STAFF') && analytics && (
         <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-5">
             <div className="flex items-center gap-3">

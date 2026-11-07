@@ -374,7 +374,7 @@ def download_report_card_pdf(
 def get_class_performance_analytics(
     division_id: Optional[str] = None,
     examination_id: Optional[str] = None,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "FACULTY")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "FACULTY", "OFFICE_STAFF")),
     db: DocStore = Depends(get_db)
 ):
     """[PRINCIPAL] Aggregated class performance: average percentages, pass rates, toppers, and at-risk students."""
