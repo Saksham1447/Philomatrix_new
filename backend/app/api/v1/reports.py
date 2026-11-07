@@ -374,7 +374,7 @@ def download_report_card_pdf(
 def get_class_performance_analytics(
     division_id: Optional[str] = None,
     examination_id: Optional[str] = None,
-    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL")),
+    current_user: UserDoc = Depends(require_roles("SUPER_ADMIN", "PRINCIPAL", "FACULTY")),
     db: DocStore = Depends(get_db)
 ):
     """[PRINCIPAL] Aggregated class performance: average percentages, pass rates, toppers, and at-risk students."""
@@ -382,11 +382,41 @@ def get_class_performance_analytics(
 
     total_students = len(students)
     at_risk_attendance = 0
+    enrollments = db.find("enrollments", {"student_id": {"$in": ids(students)}}) if students else []
+    divisions = db.get_many("divisions", ids(enrollments, "division_id"))
+    classes = db.get_many("classes", [division.class_id for division in divisions.values()])
 
     records_by_student = group_by(
         db.find("attendance_records", {"student_id": {"$in": ids(students)}}) if students else [],
         "student_id",
     )
+    attendance_by_division = {}
+    for enrollment in enrollments:
+        division = divisions.get(enrollment.division_id)
+        if not division:
+            continue
+        class_record = classes.get(division.class_id)
+        group = attendance_by_division.setdefault(
+            enrollment.division_id,
+            {
+                "class_name": class_record.name if class_record else "Unknown Class",
+                "division_name": division.name,
+                "total_conducted": 0,
+                "total_attended": 0,
+            },
+        )
+        student_records = records_by_student.get(enrollment.student_id, [])
+        group["total_conducted"] += len(student_records)
+        group["total_attended"] += sum(
+            1 for record in student_records if record.status in ["PRESENT", "LATE", "EXCUSED"]
+        )
+
+    for group in attendance_by_division.values():
+        group["attendance_percentage"] = round(
+            (group["total_attended"] / group["total_conducted"]) * 100,
+            2,
+        ) if group["total_conducted"] else 100.0
+
     for s in students:
         recs = records_by_student.get(s.id, [])
         if recs:
@@ -400,5 +430,9 @@ def get_class_performance_analytics(
         "attendance_compliance_rate": round(((total_students - at_risk_attendance) / total_students * 100), 2) if total_students > 0 else 100.0,
         "active_stream": "Class 11 & 12 Science",
         "divisions_count": db.count("divisions", {"institution_id": current_user.institution_id}),
-        "examinations_held": db.count("examinations", {"institution_id": current_user.institution_id})
+        "examinations_held": db.count("examinations", {"institution_id": current_user.institution_id}),
+        "attendance_by_division": sorted(
+            attendance_by_division.values(),
+            key=lambda item: (item["class_name"], item["division_name"]),
+        ),
     }

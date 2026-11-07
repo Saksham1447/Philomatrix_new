@@ -18,6 +18,7 @@ import {
   Sparkles,
   ShieldCheck,
   ClipboardCheck
+  ,BarChart3
   ,UserPlus
   ,X
 } from 'lucide-react';
@@ -75,6 +76,12 @@ export const DashboardPage: React.FC = () => {
             console.error('Error loading pending approvals', err);
           }
         } else if (activeRole === 'FACULTY') {
+          try {
+            const perf = await api.get<any>('/reports/analytics/class-performance');
+            setAnalytics(perf);
+          } catch (err) {
+            console.error('Error loading class attendance analytics', err);
+          }
           try {
             setTodaySlots(await api.get<any[]>('/attendance/today-slots'));
           } catch (err) {
@@ -259,6 +266,49 @@ export const DashboardPage: React.FC = () => {
               >
                 Review Now
               </Link>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(activeRole === 'PRINCIPAL' || activeRole === 'SUPER_ADMIN' || activeRole === 'FACULTY') && analytics && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <BarChart3 className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 font-display">Class & Division Attendance</h2>
+              <p className="text-xs text-slate-500">Overall attendance across every enrolled class and division.</p>
+            </div>
+          </div>
+          {!analytics.attendance_by_division || analytics.attendance_by_division.length === 0 ? (
+            <p className="p-6 text-center text-sm text-slate-400 bg-slate-50 rounded-xl">
+              No attendance records are available yet.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {analytics.attendance_by_division.map((group: any) => (
+                <div key={`${group.class_name}-${group.division_name}`}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs font-semibold text-slate-700">
+                      {group.class_name} — Division {group.division_name}
+                    </span>
+                    <span className={`text-xs font-bold ${group.attendance_percentage >= 75 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {Number(group.attendance_percentage).toFixed(2)}%
+                    </span>
+                  </div>
+                  <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${group.attendance_percentage >= 75 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                      style={{ width: `${Math.min(100, Math.max(0, Number(group.attendance_percentage)))}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {group.total_attended} attended / {group.total_conducted} recorded lectures
+                  </p>
+                </div>
+              ))}
             </div>
           )}
         </div>
