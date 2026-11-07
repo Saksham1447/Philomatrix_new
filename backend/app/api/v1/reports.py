@@ -1,5 +1,5 @@
 import io
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 from xml.sax.saxutils import escape
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -29,6 +29,11 @@ def calculate_grade(pct: Decimal) -> str:
         return "Pass Class"
     else:
         return "Needs Improvement"
+
+
+def round_percentage(value: Decimal) -> Decimal:
+    """Round percentages to two decimal places without float precision artifacts."""
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def compile_report_card_data(
@@ -85,7 +90,7 @@ def compile_report_card_data(
         if tot_obt is not None:
             grand_total_obtained += tot_obt
 
-        pct = Decimal(round((tot_obt / tot_max) * 100, 2)) if tot_obt is not None and tot_max > 0 else Decimal("0.00")
+        pct = round_percentage((tot_obt / tot_max) * 100) if tot_obt is not None and tot_max > 0 else Decimal("0.00")
         grd = calculate_grade(pct) if tot_obt is not None else "N/A"
 
         status_str = "PASS"
@@ -118,10 +123,14 @@ def compile_report_card_data(
     att_records = [r for r in all_records if r.attendance_session_id in sessions_by_id]
     tot_conducted = len(att_records)
     tot_attended = sum(1 for r in att_records if r.status in ["PRESENT", "LATE", "EXCUSED"])
-    att_pct = Decimal(round((tot_attended / tot_conducted) * 100, 2)) if tot_conducted > 0 else Decimal("100.00")
+    att_pct = (
+        round_percentage((Decimal(tot_attended) / Decimal(tot_conducted)) * 100)
+        if tot_conducted > 0
+        else Decimal("100.00")
+    )
 
     overall_pct = (
-        Decimal(round((grand_total_obtained / grand_total_max) * 100, 2))
+        round_percentage((grand_total_obtained / grand_total_max) * 100)
         if grand_total_max > 0 else Decimal("0.00")
     )
     overall_grd = calculate_grade(overall_pct) if not any_failed else "Needs Improvement"
@@ -261,7 +270,7 @@ def download_report_card_pdf(
             Paragraph(f"<b>Roll No:</b> {data.roll_number or 'N/A'}", styles['Normal']),
         ],
         [
-            Paragraph(f"<b>Term Attendance:</b> {data.attendance_percentage}% ({data.total_attended_lectures}/{data.total_conducted_lectures} Lectures)", styles['Normal']),
+            Paragraph(f"<b>Term Attendance:</b> {data.attendance_percentage:.2f}% ({data.total_attended_lectures}/{data.total_conducted_lectures} Lectures)", styles['Normal']),
             Paragraph(f"<b>Result Status:</b> <b>{data.final_result}</b>", styles['Normal']),
         ]
     ]
