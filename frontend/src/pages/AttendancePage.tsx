@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { formatIndianTime, formatLocalDate, toIndiaDateInputValue } from '../utils/time';
 import { AttendanceRecordItem, StudentAttendanceSummary } from '../types';
@@ -27,12 +28,15 @@ import {
 
 export const AttendancePage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
+  const [searchParams] = useSearchParams();
 
   // Faculty State
   const [todaySlots, setTodaySlots] = useState<any[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<any | null>(null);
   const [roster, setRoster] = useState<AttendanceRecordItem[]>([]);
-  const [selectedDate, setSelectedDate] = useState<string>(toIndiaDateInputValue());
+  const [selectedDate, setSelectedDate] = useState<string>(
+    searchParams.get('date') || toIndiaDateInputValue(),
+  );
   const [isSessionLocked, setIsSessionLocked] = useState(false);
   const [existingSessionId, setExistingSessionId] = useState<string | null>(null);
 
@@ -72,7 +76,8 @@ export const AttendancePage: React.FC = () => {
         setTodaySlots(dateSlots);
         if (dateSlots.length > 0) {
           // If no slot selected yet or current slot not in list, pick first
-          const current = dateSlots.find(s => s.timetable_entry_id === selectedSlot?.timetable_entry_id) || dateSlots[0];
+          const requestedSlotId = searchParams.get('slot');
+          const current = dateSlots.find(s => s.timetable_entry_id === (requestedSlotId || selectedSlot?.timetable_entry_id)) || dateSlots[0];
           selectSlot(current);
         } else {
           setRoster([]);

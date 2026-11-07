@@ -37,6 +37,7 @@ def _roll_sort_key(student):
 def get_today_assigned_slots(
     target_date: Optional[date] = None,
     include_all_slots: bool = False,
+    today_only: bool = False,
     current_user: UserDoc = Depends(get_current_user),
     db: DocStore = Depends(get_db)
 ):
@@ -69,8 +70,9 @@ def get_today_assigned_slots(
         )
 
     is_fallback = False
-    if not entries and not include_all_slots:
-        # Fallback to all assigned timetable slots for this faculty across the week
+    if not entries and not include_all_slots and not today_only:
+        # Preserve the weekly-slot fallback for attendance tools that select a
+        # different lecture date.
         entries = db.find(
             "timetable_entries",
             {

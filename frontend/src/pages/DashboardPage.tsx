@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { formatIndianTime } from '../utils/time';
+import { formatIndianTime, toIndiaDateInputValue } from '../utils/time';
 import { useIsEngineeringCollege } from '../hooks/useIsEngineeringCollege';
 import { Link } from 'react-router-dom';
 import {
@@ -83,7 +83,7 @@ export const DashboardPage: React.FC = () => {
             console.error('Error loading class attendance analytics', err);
           }
           try {
-            setTodaySlots(await api.get<any[]>('/attendance/today-slots'));
+            setTodaySlots(await api.get<any[]>('/attendance/today-slots?today_only=true'));
           } catch (err) {
             console.error('Error loading today\'s timetable', err);
           }
@@ -421,7 +421,7 @@ export const DashboardPage: React.FC = () => {
                     </p>
                     <div className="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between">
                       <Link
-                        to="/attendance"
+                        to={`/attendance?date=${toIndiaDateInputValue()}&slot=${slot.timetable_entry_id}`}
                         className="text-xs font-bold text-brand-600 hover:text-brand-700 flex items-center gap-1"
                       >
                         {slot.is_submitted ? 'View Records' : 'Mark Attendance'} <ArrowRight className="w-3.5 h-3.5" />
