@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -16,11 +16,26 @@ import {
   Building2,
   Sliders,
   FolderOpen,
-  ClipboardCheck
+  ClipboardCheck,
+  X
 } from 'lucide-react';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => {
   const { activeRole } = useAuth();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   const navSections = [
     {
@@ -152,14 +167,34 @@ export const Sidebar: React.FC = () => {
   ];
 
   return (
-    <aside className="w-full sm:w-64 bg-[#10172a] text-slate-300 flex flex-col shrink-0 border-b sm:border-b-0 sm:border-r border-slate-800/80 shadow-[10px_0_40px_-32px_rgba(15,23,42,0.9)] sm:sticky sm:top-[4.5rem] sm:h-[calc(100vh-4.5rem)]">
+    <>
+      <div
+        aria-hidden={!isOpen}
+        onClick={onClose}
+        className={`fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[2px] transition-opacity sm:hidden ${
+          isOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+      />
+      <aside className={`fixed inset-y-0 left-0 z-50 flex w-[min(86vw,20rem)] flex-col bg-[#10172a] text-slate-300 shadow-2xl transition-transform duration-200 sm:static sm:z-auto sm:w-64 sm:translate-x-0 sm:shadow-[10px_0_40px_-32px_rgba(15,23,42,0.9)] sm:sticky sm:top-[4.5rem] sm:h-[calc(100vh-4.5rem)] ${
+        isOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}>
       <div className="p-5 border-b border-white/10 bg-gradient-to-br from-indigo-950 via-[#10172a] to-slate-950">
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
-          Academic Navigation
-        </p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">
+            Academic Navigation
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close navigation menu"
+            className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white sm:hidden"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
-      <nav className="flex flex-1 sm:block px-3 py-3 sm:py-4 space-x-1 sm:space-x-0 sm:space-y-1 overflow-x-auto sm:overflow-y-auto scrollbar-hidden">
+      <nav className="flex flex-1 flex-col space-y-1 overflow-y-auto px-3 py-3 sm:py-4 scrollbar-hidden">
         {navSections.map(section => {
           const visibleItems = section.items.filter(item =>
             activeRole ? item.roles.includes(activeRole) : false
@@ -177,6 +212,7 @@ export const Sidebar: React.FC = () => {
                   <NavLink
                     key={item.path}
                     to={item.path}
+                    onClick={onClose}
                     className={({ isActive }) =>
                       `group flex shrink-0 items-center space-x-3 rounded-xl border-l-2 px-3 py-2.5 text-sm font-medium transition-all ${
                         isActive
@@ -204,6 +240,7 @@ export const Sidebar: React.FC = () => {
           </p>
         </div>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 };
