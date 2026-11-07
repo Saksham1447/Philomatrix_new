@@ -96,7 +96,7 @@ describe('StudentsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View Asha Patel dossier' }));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(await screen.findByText('89%')).toBeInTheDocument();
+    expect(await screen.findByText('89.00%')).toBeInTheDocument();
     expect(screen.getByText('Physics')).toBeInTheDocument();
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/attendance/summary/student/student-1'));
   });

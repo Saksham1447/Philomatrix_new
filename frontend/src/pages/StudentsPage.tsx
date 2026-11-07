@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import { Student } from '../types';
 import { AlertCircle, Calendar, CheckCircle2, Download, Eye, GraduationCap, Mail, Phone, Search, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { formatAttendancePercentage } from '../utils/attendance';
 
 export const StudentsPage: React.FC = () => {
   const { activeRole } = useAuth();
@@ -357,7 +358,7 @@ export const StudentsPage: React.FC = () => {
             </header>
             <div className="space-y-5 overflow-y-auto p-5 sm:p-7">
               <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Lecture Attendance</p><p className="mt-2 text-3xl font-bold text-slate-900">{isLoadingSummary ? '…' : attendanceSummary ? `${attendanceSummary.overall_percentage}%` : '—'}</p><p className="mt-1 text-xs text-slate-500">{attendanceSummary ? `${attendanceSummary.total_attended} of ${attendanceSummary.total_conducted} sessions attended` : 'Verified attendance summary'}</p></div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Lecture Attendance</p><p className="mt-2 text-3xl font-bold text-slate-900">{isLoadingSummary ? '…' : attendanceSummary ? `${formatAttendancePercentage(attendanceSummary.overall_percentage)}%` : '—'}</p><p className="mt-1 text-xs text-slate-500">{attendanceSummary ? `${attendanceSummary.total_attended} of ${attendanceSummary.total_conducted} sessions attended` : 'Verified attendance summary'}</p></div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Marks Total Percentage</p><p className="mt-2 text-3xl font-bold text-slate-900">—</p><p className="mt-1 text-xs text-slate-500">No marks summary available</p></div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Fee Status</p>
@@ -383,7 +384,7 @@ export const StudentsPage: React.FC = () => {
                   <div className="mt-5 border-t border-indigo-100 pt-4">
                     <h4 className="mb-3 text-xs font-bold uppercase tracking-wide text-slate-500">Attendance by Subject</h4>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      {attendanceSummary.subject_breakdown.map((subject: any) => <div key={subject.subject_id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5"><span className="text-sm font-semibold text-slate-700">{subject.subject_name}</span><span className="text-sm font-bold text-indigo-700">{subject.percentage}%</span></div>)}
+                      {attendanceSummary.subject_breakdown.map((subject: any) => <div key={subject.subject_id} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2.5"><span className="text-sm font-semibold text-slate-700">{subject.subject_name}</span><span className="text-sm font-bold text-indigo-700">                      {formatAttendancePercentage(subject.percentage)}%</span></div>)}
                     </div>
                   </div>
                 )}

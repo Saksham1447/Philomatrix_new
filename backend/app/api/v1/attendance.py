@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.deps import get_current_user, get_db, require_roles, verify_student_access
@@ -22,6 +22,15 @@ router = APIRouter(prefix="/attendance", tags=["Lecture-Wise Attendance"])
 
 DAY_NAMES = {1: "Monday", 2: "Tuesday", 3: "Wednesday", 4: "Thursday", 5: "Friday", 6: "Saturday", 7: "Sunday"}
 INDIA_TZ = ZoneInfo("Asia/Kolkata")
+
+
+def _attendance_percentage(attended: int, conducted: int) -> Decimal:
+    if conducted <= 0:
+        return Decimal("100.00")
+    return (Decimal(attended) * Decimal("100") / Decimal(conducted)).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
 
 
 def _india_now() -> datetime:
@@ -188,7 +197,7 @@ def get_attendance_roster(
         st_records = records_by_student.get(s.id, [])
         tot_cond = len(st_records)
         tot_att = sum(1 for r in st_records if r.status in ["PRESENT", "LATE", "EXCUSED"])
-        cum_pct = round((tot_att / tot_cond) * 100, 1) if tot_cond > 0 else 88.5
+        cum_pct = _attendance_percentage(tot_att, tot_cond) if tot_cond > 0 else Decimal("88.50")
         statutory_status = "ELIGIBLE" if cum_pct >= 75.0 else "SHORTAGE"
 
         roster.append({
@@ -463,16 +472,13 @@ def get_student_attendance_summary(
             subject_map[subj.id]["attended"] += 1
             total_attended += 1
 
-    overall_pct = (
-        Decimal(round((total_attended / total_conducted) * 100, 2))
-        if total_conducted > 0 else Decimal("100.00")
-    )
+    overall_pct = _attendance_percentage(total_attended, total_conducted)
 
     breakdown = []
     for s_info in subject_map.values():
         c = s_info["conducted"]
         a = s_info["attended"]
-        pct = Decimal(round((a / c) * 100, 2)) if c > 0 else Decimal("100.00")
+        pct = _attendance_percentage(a, c)
         breakdown.append(
             SubjectAttendanceStat(
                 subject_id=s_info["id"],
@@ -710,7 +716,7 @@ def list_attendance_sessions(
             "total_students": len(s_records),
             "present_count": p_count,
             "absent_count": a_count,
-            "attendance_rate": round((p_count / len(s_records) * 100), 1) if s_records else 0.0
+            "attendance_rate": _attendance_percentage(p_count, len(s_records)) if s_records else Decimal("0.00")
         })
     return results
 
@@ -753,7 +759,7 @@ def get_attendance_shortage_report(
             continue
         tot_conducted = len(records)
         tot_attended = sum(1 for r in records if r.status in ["PRESENT", "LATE", "EXCUSED"])
-        pct = Decimal(round((tot_attended / tot_conducted) * 100, 2))
+        pct = _attendance_percentage(tot_attended, tot_conducted)
         if pct < cutoff:
             enr = enrollments_by_student[st.id][0]
             division = db.get("divisions", enr.division_id)

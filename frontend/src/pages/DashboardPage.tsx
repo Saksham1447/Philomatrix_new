@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { formatIndianTime, toIndiaDateInputValue } from '../utils/time';
+import { formatAttendancePercentage } from '../utils/attendance';
 import { useIsEngineeringCollege } from '../hooks/useIsEngineeringCollege';
 import { Link } from 'react-router-dom';
 import {
@@ -219,7 +220,7 @@ export const DashboardPage: React.FC = () => {
               <div>
                 <p className="text-xs font-medium text-slate-500 uppercase">Attendance Compliance</p>
                 <h3 className="text-2xl font-bold text-slate-900 mt-0.5">
-                  {analytics ? `${analytics.attendance_compliance_rate}%` : '-'}
+                  {analytics ? `${formatAttendancePercentage(analytics.attendance_compliance_rate)}%` : '-'}
                 </h3>
                 <span className="text-[11px] text-slate-500">Above 75% Threshold</span>
               </div>
@@ -336,14 +337,14 @@ export const DashboardPage: React.FC = () => {
                 <text x="20" y="25" fill="#64748b" fontSize="11" fontWeight="700">CLASS / DIVISION</text>
                 <text x="790" y="25" textAnchor="end" fill="#64748b" fontSize="11" fontWeight="700">ATTENDANCE</text>
                 {analytics.attendance_by_division.map((group: any, index: number) => {
-                  const percentage = Math.min(100, Math.max(0, Number(group.attendance_percentage) || 0));
+                  const percentage = Math.min(100, Math.max(0, Number(formatAttendancePercentage(group.attendance_percentage))));
                   const y = 52 + index * 52;
                   const barWidth = percentage * 5.3;
                   const onTrack = percentage >= 75;
                   return (
                     <g key={`${group.class_name}-${group.division_name}`}>
                       <title>
-                        {group.class_name} — Division {group.division_name}: {percentage.toFixed(2)}% ({group.total_attended} attended of {group.total_conducted} recorded)
+                        {group.class_name} — Division {group.division_name}: {formatAttendancePercentage(group.attendance_percentage)}% ({group.total_attended} attended of {group.total_conducted} recorded)
                       </title>
                       <text x="20" y={y + 17} fill="#334155" fontSize="13" fontWeight="700">
                         {group.class_name} — Division {group.division_name}
@@ -351,7 +352,7 @@ export const DashboardPage: React.FC = () => {
                       <rect x="245" y={y + 4} width="530" height="22" rx="11" fill="#e2e8f0" />
                       <rect x="245" y={y + 4} width={barWidth} height="22" rx="11" fill={`url(#${onTrack ? 'attendanceOnTrack' : 'attendanceNeedsAttention'})`} />
                       <text x="790" y={y + 20} textAnchor="end" fill={onTrack ? "#059669" : "#e11d48"} fontSize="14" fontWeight="800">
-                        {percentage.toFixed(2)}%
+                        {formatAttendancePercentage(group.attendance_percentage)}%
                       </text>
                       <text x="20" y={y + 37} fill="#94a3b8" fontSize="10">
                         {group.total_attended} attended / {group.total_conducted} recorded lectures
@@ -448,7 +449,7 @@ export const DashboardPage: React.FC = () => {
                     : 'bg-rose-50 text-rose-600 border border-rose-200'
                 }`}
               >
-                {studentSummary?.overall_percentage ?? 85}%
+                {formatAttendancePercentage(studentSummary?.overall_percentage ?? 85)}%
               </div>
               <div>
                 <p className="text-xs font-semibold text-slate-400 uppercase">Term Attendance</p>
@@ -505,13 +506,13 @@ export const DashboardPage: React.FC = () => {
                           sb.percentage >= 75 ? 'text-emerald-600' : 'text-rose-600'
                         }`}
                       >
-                        {sb.percentage}%
+                        {formatAttendancePercentage(sb.percentage)}%
                       </span>
                     </div>
                     <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
                       <div
                         className={`h-full ${sb.percentage >= 75 ? 'bg-emerald-500' : 'bg-rose-500'}`}
-                        style={{ width: `${sb.percentage}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, Number(sb.percentage) || 0))}%` }}
                       />
                     </div>
                     <p className="text-[11px] text-slate-500 mt-1.5">

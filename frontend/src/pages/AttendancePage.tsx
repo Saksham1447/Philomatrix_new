@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../services/api';
 import { formatIndianTime, formatLocalDate, toIndiaDateInputValue } from '../utils/time';
+import { formatAttendancePercentage } from '../utils/attendance';
 import { AttendanceRecordItem, StudentAttendanceSummary } from '../types';
 import {
   CalendarCheck,
@@ -547,7 +548,7 @@ export const AttendancePage: React.FC = () => {
                                 isShortage ? 'text-rose-400' : 'text-slate-200'
                               }`}
                             >
-                              {scholar.cumulative_attendance ? `${scholar.cumulative_attendance}%` : '88.5%'}
+                              {formatAttendancePercentage(scholar.cumulative_attendance ?? '88.50')}%
                             </span>
                           </td>
 
@@ -716,7 +717,7 @@ export const AttendancePage: React.FC = () => {
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right font-bold text-slate-900">
-                        {sess.attendance_rate}%
+                        {formatAttendancePercentage(sess.attendance_rate)}%
                       </td>
                     </tr>
                   ))}
@@ -820,7 +821,7 @@ export const AttendancePage: React.FC = () => {
                       <td className="py-3 px-3">{st.class_name} • {st.division_name}</td>
                       <td className="py-3 px-3 text-center">{st.total_conducted}</td>
                       <td className="py-3 px-3 text-center font-bold text-slate-800">{st.total_attended}</td>
-                      <td className="py-3 px-3 text-right font-black text-rose-600">{st.overall_percentage}%</td>
+                      <td className="py-3 px-3 text-right font-black text-rose-600">{formatAttendancePercentage(st.overall_percentage)}%</td>
                       <td className="py-3 px-3 text-center">
                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
                           SHORTAGE
@@ -845,14 +846,14 @@ export const AttendancePage: React.FC = () => {
               <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Overall Attendance</span>
               <div className="flex items-baseline gap-2 mt-2">
                 <span className={`text-4xl font-extrabold ${studentSummary.is_below_threshold ? 'text-rose-600' : 'text-slate-900'}`}>
-                  {studentSummary.overall_percentage}%
+                  {formatAttendancePercentage(studentSummary.overall_percentage)}%
                 </span>
                 <span className="text-xs text-slate-500 font-semibold">Min: 75% required</span>
               </div>
               <div className="mt-3 w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full ${studentSummary.is_below_threshold ? 'bg-rose-500' : 'bg-emerald-500'}`}
-                  style={{ width: `${Math.min(studentSummary.overall_percentage, 100)}%` }}
+                  style={{ width: `${Math.min(Number(studentSummary.overall_percentage) || 0, 100)}%` }}
                 />
               </div>
             </div>
@@ -899,7 +900,7 @@ export const AttendancePage: React.FC = () => {
                         <td className="py-3 px-3 text-center">{subj.total_conducted}</td>
                         <td className="py-3 px-3 text-center font-bold">{subj.total_attended}</td>
                         <td className={`py-3 px-3 text-right font-black ${below ? 'text-rose-600' : 'text-slate-900'}`}>
-                          {subj.percentage}%
+                          {formatAttendancePercentage(subj.percentage)}%
                         </td>
                         <td className="py-3 px-3 text-center">
                           <span

@@ -412,10 +412,9 @@ def get_class_performance_analytics(
         )
 
     for group in attendance_by_division.values():
-        group["attendance_percentage"] = round(
-            (group["total_attended"] / group["total_conducted"]) * 100,
-            2,
-        ) if group["total_conducted"] else 100.0
+        group["attendance_percentage"] = round_percentage(
+            Decimal(group["total_attended"] * 100) / Decimal(group["total_conducted"])
+        ) if group["total_conducted"] else Decimal("100.00")
 
     for s in students:
         recs = records_by_student.get(s.id, [])
@@ -427,7 +426,9 @@ def get_class_performance_analytics(
     return {
         "total_active_students": total_students,
         "students_below_75_attendance": at_risk_attendance,
-        "attendance_compliance_rate": round(((total_students - at_risk_attendance) / total_students * 100), 2) if total_students > 0 else 100.0,
+        "attendance_compliance_rate": round_percentage(
+            Decimal((total_students - at_risk_attendance) * 100) / Decimal(total_students)
+        ) if total_students > 0 else Decimal("100.00"),
         "active_stream": "Class 11 & 12 Science",
         "divisions_count": db.count("divisions", {"institution_id": current_user.institution_id}),
         "examinations_held": db.count("examinations", {"institution_id": current_user.institution_id}),

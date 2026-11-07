@@ -12,6 +12,7 @@ import {
   Award,
   CalendarCheck
 } from 'lucide-react';
+import { formatAttendancePercentage } from '../utils/attendance';
 
 interface AcademicClass {
   id: string;
@@ -287,7 +288,7 @@ export const ReportCardPage: React.FC = () => {
             <div>
               <p className="text-slate-400 font-semibold uppercase">Term Attendance</p>
               <p className="font-bold text-emerald-700 text-sm mt-0.5">
-                {Number(reportData.attendance_percentage).toFixed(2)}% ({reportData.total_attended_lectures}/{reportData.total_conducted_lectures} Lectures)
+                {formatAttendancePercentage(reportData.attendance_percentage)}% ({reportData.total_attended_lectures}/{reportData.total_conducted_lectures} Lectures)
               </p>
             </div>
           </div>
@@ -323,7 +324,7 @@ export const ReportCardPage: React.FC = () => {
                     <td className="py-2.5 px-3 text-center font-extrabold text-slate-900">
                       {s.total_obtained ?? '-'}
                     </td>
-                    <td className="py-2.5 px-3 text-center font-bold text-slate-700">{s.percentage}%</td>
+                    <td className="py-2.5 px-3 text-center font-bold text-slate-700">{formatAttendancePercentage(s.percentage)}%</td>
                     <td className="py-2.5 px-3 text-center font-bold text-brand-700">{s.grade}</td>
                     <td className="py-2.5 px-3 text-center">
                       <span
@@ -348,7 +349,7 @@ export const ReportCardPage: React.FC = () => {
                   <td className="py-3 px-3 text-center text-brand-900 text-sm">
                     {reportData.grand_total_obtained}
                   </td>
-                  <td className="py-3 px-3 text-center text-sm">{reportData.overall_percentage}%</td>
+                  <td className="py-3 px-3 text-center text-sm">{formatAttendancePercentage(reportData.overall_percentage)}%</td>
                   <td className="py-3 px-3 text-center text-brand-700">{reportData.overall_grade}</td>
                   <td className="py-3 px-3 text-center text-emerald-800">
                     {reportData.final_result}
