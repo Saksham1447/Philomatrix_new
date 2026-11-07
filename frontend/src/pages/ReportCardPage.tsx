@@ -209,7 +209,7 @@ export const ReportCardPage: React.FC = () => {
             <div>
               <p className="text-slate-400 font-semibold uppercase">Term Attendance</p>
               <p className="font-bold text-emerald-700 text-sm mt-0.5">
-                {reportData.attendance_percentage.toFixed(2)}% ({reportData.total_attended_lectures}/{reportData.total_conducted_lectures} Lectures)
+                {Number(reportData.attendance_percentage).toFixed(2)}% ({reportData.total_attended_lectures}/{reportData.total_conducted_lectures} Lectures)
               </p>
             </div>
           </div>
