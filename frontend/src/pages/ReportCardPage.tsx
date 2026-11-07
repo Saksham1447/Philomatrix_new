@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { ReportCardData, Examination, Student } from '../types';
@@ -13,11 +13,20 @@ import {
   CalendarCheck
 } from 'lucide-react';
 
+interface AcademicClass {
+  id: string;
+  name: string;
+  divisions: Array<{ id: string; name: string }>;
+}
+
 export const ReportCardPage: React.FC = () => {
   const { user, activeRole, activeChild } = useAuth();
   const [examinations, setExaminations] = useState<Examination[]>([]);
   const [selectedExamId, setSelectedExamId] = useState<string>('');
   const [students, setStudents] = useState<Student[]>([]);
+  const [classes, setClasses] = useState<AcademicClass[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [selectedDivisionId, setSelectedDivisionId] = useState<string>('');
   const [selectedStudentId, setSelectedStudentId] = useState<string>('');
   const [reportData, setReportData] = useState<ReportCardData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -34,8 +43,12 @@ export const ReportCardPage: React.FC = () => {
         }
 
         if (activeRole === 'PRINCIPAL' || activeRole === 'FACULTY' || activeRole === 'OFFICE_STAFF') {
-          const stList = await api.get<Student[]>('/students');
+          const [stList, classList] = await Promise.all([
+            api.get<Student[]>('/students'),
+            api.get<AcademicClass[]>('/academics/classes'),
+          ]);
           setStudents(stList);
+          setClasses(classList);
           if (stList.length > 0) {
             setSelectedStudentId(stList[0].id);
           }
@@ -50,6 +63,34 @@ export const ReportCardPage: React.FC = () => {
     };
     initData();
   }, [activeRole, activeChild, user]);
+
+  const divisions = useMemo(
+    () => classes.find(item => item.id === selectedClassId)?.divisions || [],
+    [classes, selectedClassId]
+  );
+
+  const filteredStudents = useMemo(
+    () => students.filter(student =>
+      (!selectedClassId || classes.find(item => item.id === selectedClassId)?.name === student.class_name) &&
+      (!selectedDivisionId || student.division_id === selectedDivisionId)
+    ),
+    [classes, selectedClassId, selectedDivisionId, students]
+  );
+
+  useEffect(() => {
+    if (!selectedStudentId || !filteredStudents.some(student => student.id === selectedStudentId)) {
+      setSelectedStudentId(filteredStudents[0]?.id || '');
+    }
+  }, [filteredStudents, selectedStudentId]);
+
+  const handleClassChange = (classId: string) => {
+    setSelectedClassId(classId);
+    setSelectedDivisionId('');
+  };
+
+  const handleDivisionChange = (divisionId: string) => {
+    setSelectedDivisionId(divisionId);
+  };
 
   useEffect(() => {
     if (selectedExamId && selectedStudentId) {
@@ -147,6 +188,43 @@ export const ReportCardPage: React.FC = () => {
 
           <div>
             <label className="block text-[11px] font-bold text-slate-400 uppercase">
+              Select Class
+            </label>
+            <select
+              value={selectedClassId}
+              onChange={e => handleClassChange(e.target.value)}
+              className="mt-1 px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+            >
+              <option value="">All Classes</option>
+              {classes.map(item => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase">
+              Select Division
+            </label>
+            <select
+              value={selectedDivisionId}
+              onChange={e => handleDivisionChange(e.target.value)}
+              disabled={!selectedClassId}
+              className="mt-1 px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg disabled:opacity-50"
+            >
+              <option value="">All Divisions</option>
+              {divisions.map(division => (
+                <option key={division.id} value={division.id}>
+                  Division {division.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-400 uppercase">
               Select Student
             </label>
             <select
@@ -154,7 +232,7 @@ export const ReportCardPage: React.FC = () => {
               onChange={e => setSelectedStudentId(e.target.value)}
               className="mt-1 px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
             >
-              {students.map(st => (
+              {filteredStudents.map(st => (
                 <option key={st.id} value={st.id}>
                   {st.full_name} ({st.admission_number} - Div {st.division_name})
                 </option>
