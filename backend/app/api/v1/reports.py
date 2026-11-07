@@ -1,6 +1,7 @@
 import io
 from decimal import Decimal
 from typing import List, Optional
+from xml.sax.saxutils import escape
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from reportlab.lib.pagesizes import letter
@@ -213,6 +214,31 @@ def download_report_card_pdf(
         alignment=1,
         textColor=colors.HexColor("#4338ca")
     )
+    table_header_style = ParagraphStyle(
+        'TableHeader',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=7,
+        leading=8,
+        alignment=1,
+        textColor=colors.white,
+    )
+    table_cell_style = ParagraphStyle(
+        'TableCell',
+        parent=styles['Normal'],
+        fontSize=7.5,
+        leading=9,
+        alignment=1,
+        textColor=colors.HexColor("#0f172a"),
+    )
+    table_cell_left_style = ParagraphStyle(
+        'TableCellLeft',
+        parent=table_cell_style,
+        alignment=0,
+    )
+
+    def cell(value, style=table_cell_style):
+        return Paragraph(escape(str(value)), style)
 
     elements = []
 
@@ -250,39 +276,47 @@ def download_report_card_pdf(
     elements.append(Spacer(1, 15))
 
     # Subject Scores Table
-    table_data = [
-        ["Subject Code", "Subject Name", "Theory (Max)", "Practical (Max)", "Total Max", "Total Obtained", "%", "Grade", "Status"]
-    ]
+    table_data = [[
+        cell("Subject Code", table_header_style),
+        cell("Subject Name", table_header_style),
+        cell("Theory (Max)", table_header_style),
+        cell("Practical (Max)", table_header_style),
+        cell("Total Max", table_header_style),
+        cell("Total Obtained", table_header_style),
+        cell("%", table_header_style),
+        cell("Grade", table_header_style),
+        cell("Status", table_header_style),
+    ]]
     for s in data.subjects:
         th_str = f"{s.theory_obtained}" if s.theory_obtained is not None else "-"
         pr_str = f"{s.practical_obtained}" if s.practical_obtained is not None else "-"
         tot_str = f"{s.total_obtained}" if s.total_obtained is not None else "-"
         table_data.append([
-            s.subject_code,
-            s.subject_name,
-            f"{s.theory_max}",
-            f"{s.practical_max}",
-            f"{s.total_max}",
-            tot_str,
-            f"{s.percentage}%",
-            s.grade,
-            s.status
+            cell(s.subject_code),
+            cell(s.subject_name, table_cell_left_style),
+            cell(s.theory_max),
+            cell(s.practical_max),
+            cell(s.total_max),
+            cell(tot_str),
+            cell(f"{s.percentage}%"),
+            cell(s.grade),
+            cell(s.status),
         ])
 
     # Grand Total Row
     table_data.append([
-        "TOTAL",
-        "GRAND AGGREGATE",
-        "-",
-        "-",
-        f"{data.grand_total_max}",
-        f"{data.grand_total_obtained}",
-        f"{data.overall_percentage}%",
-        data.overall_grade,
-        data.final_result
+        cell("TOTAL"),
+        cell("GRAND AGGREGATE", table_cell_left_style),
+        cell("-"),
+        cell("-"),
+        cell(data.grand_total_max),
+        cell(data.grand_total_obtained),
+        cell(f"{data.overall_percentage}%"),
+        cell(data.overall_grade),
+        cell(data.final_result),
     ])
 
-    t_scores = Table(table_data, colWidths=[65, 115, 60, 60, 50, 55, 45, 50, 40])
+    t_scores = Table(table_data, colWidths=[58, 102, 55, 55, 50, 60, 40, 55, 65], repeatRows=1)
     t_scores.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#4338ca")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
