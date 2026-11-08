@@ -93,7 +93,12 @@ def _feedback_question_response(question: Doc) -> FeedbackQuestionResponse:
     )
 
 
-def _feedback_form_response(form: Doc, questions: list[Doc]) -> FeedbackFormResponse:
+def _feedback_form_response(
+    form: Doc,
+    questions: list[Doc],
+    *,
+    is_submitted_by_user: bool = False,
+) -> FeedbackFormResponse:
     return FeedbackFormResponse(
         id=form.id,
         title=form.title,
@@ -103,6 +108,7 @@ def _feedback_form_response(form: Doc, questions: list[Doc]) -> FeedbackFormResp
         start_date=form.start_date,
         end_date=form.end_date,
         questions=[_feedback_question_response(question) for question in questions],
+        is_submitted_by_user=is_submitted_by_user,
     )
 
 
@@ -303,7 +309,27 @@ def list_feedback_forms(
         sort=[("display_order", 1)],
     ) if forms else []
     questions_by_form = group_by(questions, "feedback_form_id")
-    return [_feedback_form_response(form, questions_by_form.get(form.id, [])) for form in forms]
+    submitted_form_ids = {
+        audit.entity_id
+        for audit in db.find(
+            "audit_logs",
+            {
+                "institution_id": current_user.institution_id,
+                "user_id": current_user.id,
+                "action": "FEEDBACK_SUBMITTED",
+                "entity_type": "feedback_forms",
+                "entity_id": in_(ids(forms)),
+            },
+        )
+    } if forms and "PRINCIPAL" not in role_names and "SUPER_ADMIN" not in role_names else set()
+    return [
+        _feedback_form_response(
+            form,
+            questions_by_form.get(form.id, []),
+            is_submitted_by_user=form.id in submitted_form_ids,
+        )
+        for form in forms
+    ]
 
 
 @router.post("/feedback/forms", response_model=FeedbackFormResponse, status_code=status.HTTP_201_CREATED)
@@ -346,6 +372,7 @@ def create_feedback_form(
         start_date=form.start_date,
         end_date=form.end_date,
         questions=[_feedback_question_response(question) for question in questions],
+        is_submitted_by_user=False,
     )
 
 

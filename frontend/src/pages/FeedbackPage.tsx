@@ -56,7 +56,7 @@ export const FeedbackPage: React.FC = () => {
   const selectForm = async (form: any) => {
     setSelectedForm(form);
     setAnswers({});
-    setSubmitted(false);
+    setSubmitted(Boolean(form.is_submitted_by_user));
     setErrorMsg(null);
     setSuccessMsg(null);
 
@@ -100,6 +100,11 @@ export const FeedbackPage: React.FC = () => {
         answers: formattedAnswers,
       });
       setSubmitted(true);
+      const submittedForm = { ...selectedForm, is_submitted_by_user: true };
+      setSelectedForm(submittedForm);
+      setForms(previousForms =>
+        previousForms.map(form => form.id === submittedForm.id ? submittedForm : form)
+      );
       setSuccessMsg('Academic feedback submitted successfully!');
     } catch (err: any) {
       setErrorMsg(err.message || 'Submission failed');
@@ -210,7 +215,13 @@ export const FeedbackPage: React.FC = () => {
                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                 }`}
               >
-                {f.title} ({f.target_role})
+                <span>{f.title} ({f.target_role})</span>
+                {f.is_submitted_by_user && (
+                  <span className="ml-1 inline-flex items-center gap-1 text-emerald-700">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Submitted
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -410,10 +421,10 @@ export const FeedbackPage: React.FC = () => {
             <div className="bg-white rounded-2xl border border-emerald-200 p-8 text-center space-y-3">
               <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
               <h2 className="text-xl font-bold text-slate-900 font-display">
-                Feedback Submitted Successfully
+                Feedback Submitted
               </h2>
               <p className="text-xs text-slate-600 max-w-md mx-auto">
-                Your responses have been recorded confidentially. Thank you for helping elevate teaching and laboratory standards.
+                You have already submitted your response for this feedback form. Your response is recorded confidentially. Thank you for helping elevate teaching and laboratory standards.
               </p>
             </div>
           ) : selectedForm ? (

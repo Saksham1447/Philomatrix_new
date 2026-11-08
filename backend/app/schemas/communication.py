@@ -97,6 +97,7 @@ class FeedbackFormResponse(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     questions: List[FeedbackQuestionResponse] = []
+    is_submitted_by_user: bool = False
 
     class Config:
         from_attributes = True
